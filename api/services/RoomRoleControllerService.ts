@@ -1,0 +1,79 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultListUserRole } from '../models/ApiResultListUserRole';
+import type { ApiResultVoid } from '../models/ApiResultVoid';
+import type { RoomRoleAddRequest } from '../models/RoomRoleAddRequest';
+import type { RoomRoleDeleteRequest } from '../models/RoomRoleDeleteRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class RoomRoleControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 增加房间的角色
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public addRole(
+        requestBody: RoomRoleAddRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/room/role/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 删除房间的角色
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public deleteRole(
+        requestBody: RoomRoleDeleteRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/room/role/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取房间的所有NPC角色
+     * @param roomId
+     * @returns ApiResultListUserRole OK
+     * @throws ApiError
+     */
+    public roomNpcRole(
+        roomId: number,
+    ): CancelablePromise<ApiResultListUserRole> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/room/role/npc/list',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+    /**
+     * 获取房间的所有玩家角色
+     * @param roomId
+     * @returns ApiResultListUserRole OK
+     * @throws ApiError
+     */
+    public roomRole(
+        roomId: number,
+    ): CancelablePromise<ApiResultListUserRole> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/room/role/list',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+}

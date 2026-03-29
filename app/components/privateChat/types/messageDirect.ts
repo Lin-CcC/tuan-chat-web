@@ -1,0 +1,20 @@
+export type MessageDirectType = {
+  messageId?: number;
+  userId?: number;
+  syncId?: number;
+  senderId?: number;
+  senderUsername?: string;
+  senderAvatar?: string;
+  senderAvatarThumbUrl?: string;
+  receiverId?: number;
+  receiverUsername?: string;
+  receiverAvatar?: string;
+  receiverAvatarThumbUrl?: string;
+  content?: string;
+  messageType?: number;
+  replyMessageId?: number;
+  status?: number;
+  extra?: Record<string, any>;
+  createTime?: string;
+  updateTime?: string;
+};

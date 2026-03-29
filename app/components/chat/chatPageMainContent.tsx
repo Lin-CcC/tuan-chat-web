@@ -1,0 +1,169 @@
+import React from "react";
+import { useSearchParams } from "react-router";
+
+import { useChatPageLayoutContext } from "@/components/chat/chatPageLayoutContext";
+import RoomWindow from "@/components/chat/room/roomWindow";
+import BlocksuiteDescriptionEditor from "@/components/chat/shared/components/blocksuiteDescriptionEditor";
+import SpaceDetailPanel from "@/components/chat/space/drawers/spaceDetailPanel";
+import RoomSettingWindow from "@/components/chat/window/roomSettingWindow";
+import FriendsPage from "@/components/privateChat/FriendsPage";
+import RightChatView from "@/components/privateChat/RightChatView";
+
+function ChatPageMainContent() {
+  const { isSpaceDetailRoute } = useChatPageLayoutContext();
+
+  return isSpaceDetailRoute ? <ChatPageSpaceDetailContent /> : <ChatPageChatContent />;
+}
+
+function ChatPageChatContent() {
+  const {
+    isPrivateChatMode,
+    activeRoomId,
+    setIsOpenLeftDrawer,
+    activeSpaceId,
+    targetMessageId,
+    onOpenThreadInSubWindow,
+  } = useChatPageLayoutContext();
+  const [searchParams] = useSearchParams();
+  const previewParam = searchParams.get("preview");
+  const isPreviewMode = previewParam === "1" || previewParam === "true";
+
+  if (isPrivateChatMode) {
+    return activeRoomId
+      ? (
+          <RightChatView
+            setIsOpenLeftDrawer={setIsOpenLeftDrawer}
+          />
+        )
+      : (
+          <FriendsPage
+            setIsOpenLeftDrawer={setIsOpenLeftDrawer}
+          />
+        );
+  }
+
+  if (!activeSpaceId) {
+    return (
+      <div className="flex items-center justify-center w-full h-full font-bold">
+        <span className="text-center lg:hidden">请在左侧选择空间或房间</span>
+      </div>
+    );
+  }
+
+  if (activeRoomId == null) {
+    return (
+      <div className="flex items-center justify-center w-full h-full font-bold">
+        <span className="text-center">请先选择房间</span>
+      </div>
+    );
+  }
+
+  return (
+    <RoomWindow
+      roomId={activeRoomId}
+      spaceId={activeSpaceId ?? -1}
+      targetMessageId={targetMessageId}
+      viewMode={isPreviewMode}
+      onOpenThread={activeRoomId ? threadRootMessageId => onOpenThreadInSubWindow(activeRoomId, threadRootMessageId) : undefined}
+    />
+  );
+}
+
+function ChatPageSpaceDetailContent() {
+  const { activeSpaceId, spaceDetailTab, closeSpaceDetailPanel } = useChatPageLayoutContext();
+
+  if (!activeSpaceId) {
+    return (
+      <div className="flex items-center justify-center w-full h-full font-bold">
+        <span className="text-center lg:hidden">请在左侧选择空间或房间</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-full h-full justify-center min-h-0 min-w-0">
+      <div className="w-full h-full overflow-auto flex justify-center">
+        <SpaceDetailPanel activeTab={spaceDetailTab} onClose={closeSpaceDetailPanel} />
+      </div>
+    </div>
+  );
+}
+
+export function ChatPageRoomSettingContent() {
+  const { roomSettingState, closeRoomSettingPage } = useChatPageLayoutContext();
+
+  if (!roomSettingState) {
+    return null;
+  }
+
+  return (
+    <div className="flex w-full h-full justify-center min-h-0 min-w-0">
+      <div className="w-full h-full overflow-auto flex justify-center ">
+        <RoomSettingWindow
+          roomId={roomSettingState.roomId}
+          onClose={closeRoomSettingPage}
+          defaultTab={roomSettingState.tab}
+        />
+      </div>
+    </div>
+  );
+}
+
+interface ChatPageDocContentProps {
+  spaceId?: number | null;
+  docId?: string | null;
+  canViewDocs?: boolean;
+  tcHeaderTitle?: string;
+}
+
+export function ChatPageDocContent(props: ChatPageDocContentProps = {}) {
+  const {
+    activeSpaceId,
+    activeDocId,
+    isKPInSpace,
+    activeDocTitleForTcHeader,
+    onDocTcHeaderChange,
+  } = useChatPageLayoutContext();
+  const resolvedSpaceId = props.spaceId ?? activeSpaceId;
+  const resolvedDocId = props.docId ?? activeDocId;
+  const canViewDocs = props.canViewDocs ?? isKPInSpace;
+  const tcHeaderTitle = props.tcHeaderTitle ?? activeDocTitleForTcHeader;
+
+  if (!resolvedSpaceId || !resolvedDocId) {
+    return (
+      <div className="flex items-center justify-center w-full h-full font-bold">
+        <span className="text-center lg:hidden">请在左侧选择空间或房间</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex w-full h-full justify-center min-h-0 min-w-0">
+      <div className="w-full h-full overflow-auto flex justify-center">
+        {canViewDocs
+          ? (
+              <div className="w-full h-full overflow-x-auto overflow-y-hidden bg-base-100 border border-base-300 rounded-box">
+                <BlocksuiteDescriptionEditor
+                  workspaceId={`space:${resolvedSpaceId ?? -1}`}
+                  spaceId={resolvedSpaceId ?? -1}
+                  docId={resolvedDocId}
+                  intentPrewarm
+                  variant="full"
+                  tcHeader={{ enabled: true, fallbackTitle: tcHeaderTitle }}
+                  onTcHeaderChange={onDocTcHeaderChange}
+                  allowModeSwitch
+                  fullscreenEdgeless
+                />
+              </div>
+            )
+          : (
+              <div className="flex items-center justify-center w-full h-full font-bold">
+                <span className="text-center">仅 KP 可查看文档</span>
+              </div>
+            )}
+      </div>
+    </div>
+  );
+}
+
+export default ChatPageMainContent;

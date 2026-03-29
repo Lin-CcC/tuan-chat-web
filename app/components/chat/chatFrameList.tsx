@@ -1,0 +1,295 @@
+import type { VirtuosoHandle } from "react-virtuoso";
+import type { ChatMessageResponse } from "../../../api";
+import React, { memo, useCallback, useEffect, useRef } from "react";
+import { Virtuoso } from "react-virtuoso";
+import { addDroppedFilesToComposer, isFileDrag } from "@/components/chat/utils/dndUpload";
+
+const STABLE_MESSAGE_KEY_FIELD = "__tcStableKey";
+
+export function getChatFrameItemKey(index: number, item: ChatMessageResponse): string {
+  const message = item?.message as (ChatMessageResponse["message"] & { [STABLE_MESSAGE_KEY_FIELD]?: unknown }) | undefined;
+  const stableKey = message?.[STABLE_MESSAGE_KEY_FIELD];
+  if ((typeof stableKey === "string" && stableKey.length > 0) || typeof stableKey === "number") {
+    return `stable:${stableKey}`;
+  }
+  const messageId = message?.messageId;
+  if (typeof messageId === "number" && Number.isFinite(messageId)) {
+    return `id:${messageId}`;
+  }
+  const position = message?.position;
+  if (typeof position === "number" && Number.isFinite(position)) {
+    return `pos:${position.toFixed(6)}`;
+  }
+  return `idx:${index}`;
+}
+
+function Header() {
+  return (
+    <div className="py-2">
+      <div className="divider text-xs text-base-content/50 m-0">到顶</div>
+    </div>
+  );
+}
+
+interface SelectionToolbarProps {
+  selectedCount: number;
+  totalCount: number;
+  isSelecting: boolean;
+  isSpaceOwner: boolean;
+  onCancel: () => void;
+  onSelectAll: () => void;
+  onRegexFilter: () => void;
+  onExportFile: () => void;
+  onExportImage: () => void;
+  onForward: () => void;
+  onBatchDelete: () => void;
+}
+
+const SelectionToolbar = memo(({
+  selectedCount,
+  totalCount,
+  isSelecting,
+  isSpaceOwner,
+  onCancel,
+  onSelectAll,
+  onRegexFilter,
+  onExportFile,
+  onExportImage,
+  onForward,
+  onBatchDelete,
+}: SelectionToolbarProps) => {
+  if (!isSelecting)
+    return null;
+  const hasSelection = selectedCount > 0;
+  const canSelectAll = totalCount > 0;
+
+  return (
+    <div className="absolute top-0 bg-base-300 w-full p-2 shadow-sm z-15 flex justify-between items-center rounded">
+      <span>{`已选择${selectedCount} 条消息`}</span>
+      <div className="gap-x-4 flex">
+        <button className="btn btn-sm" onClick={onSelectAll} type="button" disabled={!canSelectAll}>
+          全选
+        </button>
+        <button className="btn btn-sm" onClick={onRegexFilter} type="button" disabled={!canSelectAll}>
+          筛选
+        </button>
+        <button className="btn btn-sm" onClick={onCancel} type="button">
+          取消
+        </button>
+        <button className="btn btn-sm btn-accent" onClick={onExportFile} type="button" disabled={!hasSelection}>
+          导出成文件
+        </button>
+        <button className="btn btn-sm btn-secondary" onClick={onExportImage} type="button" disabled={!hasSelection}>
+          生成图片
+        </button>
+        <button className="btn btn-sm btn-info" onClick={onForward} type="button" disabled={!hasSelection}>
+          转发
+        </button>
+        {isSpaceOwner && (
+          <button className="btn btn-sm btn-error" onClick={onBatchDelete} type="button" disabled={!hasSelection}>
+            删除
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+interface UnreadIndicatorProps {
+  enabled: boolean;
+  unreadMessageNumber: number;
+  historyLength: number;
+  isAtBottom: boolean;
+  onScrollToBottom: () => void;
+}
+
+const UnreadIndicator = memo(({
+  enabled,
+  unreadMessageNumber,
+  historyLength,
+  isAtBottom,
+  onScrollToBottom,
+}: UnreadIndicatorProps) => {
+  if (!enabled || unreadMessageNumber <= 0 || historyLength <= 2 || isAtBottom)
+    return null;
+
+  return (
+    <div className="absolute bottom-4 self-end z-50 cursor-pointer" onClick={onScrollToBottom}>
+      <div className="btn btn-info gap-2 shadow-lg">
+        <span>{unreadMessageNumber}</span>
+        <span>条新消息</span>
+      </div>
+    </div>
+  );
+});
+
+interface DragHandlers {
+  handleDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+  handleDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+}
+
+function useChatFrameListDragHandlers(roomId: number): DragHandlers {
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (isFileDrag(event.dataTransfer)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    }
+  }, []);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDrag(event.dataTransfer))
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    addDroppedFilesToComposer(event.dataTransfer, roomId);
+  }, [roomId]);
+
+  return { handleDragOver, handleDrop };
+}
+
+interface ChatFrameListProps {
+  historyMessages: ChatMessageResponse[];
+  virtuosoRef: React.RefObject<VirtuosoHandle | null>;
+  scrollerRef: React.MutableRefObject<HTMLElement | null>;
+  isAtBottomRef: React.MutableRefObject<boolean>;
+  isAtTopRef: React.MutableRefObject<boolean>;
+  setCurrentVirtuosoIndex: (index: number) => void;
+  enableUnreadIndicator: boolean;
+  unreadMessageNumber: number;
+  scrollToBottom: () => void;
+  updateLastReadSyncId: (roomId: number) => void;
+  roomId: number;
+  renderMessage: (index: number, message: ChatMessageResponse) => React.ReactNode;
+  onContextMenu: (e: React.MouseEvent) => void;
+  selectedMessageIds: Set<number>;
+  isSelecting: boolean;
+  onSelectAll: () => void;
+  onRegexFilter: () => void;
+  onExportFile: () => void;
+  onCancelSelection: () => void;
+  setIsExportImageWindowOpen: (open: boolean) => void;
+  setIsForwardWindowOpen: (open: boolean) => void;
+  handleBatchDelete: () => void;
+  isSpaceOwner: boolean;
+}
+
+export default function ChatFrameList({
+  historyMessages,
+  virtuosoRef,
+  scrollerRef,
+  isAtBottomRef,
+  isAtTopRef,
+  setCurrentVirtuosoIndex,
+  enableUnreadIndicator,
+  unreadMessageNumber,
+  scrollToBottom,
+  updateLastReadSyncId,
+  roomId,
+  renderMessage,
+  onContextMenu,
+  selectedMessageIds,
+  isSelecting,
+  onSelectAll,
+  onRegexFilter,
+  onExportFile,
+  onCancelSelection,
+  setIsExportImageWindowOpen,
+  setIsForwardWindowOpen,
+  handleBatchDelete,
+  isSpaceOwner,
+}: ChatFrameListProps) {
+  const { handleDragOver, handleDrop } = useChatFrameListDragHandlers(roomId);
+  const computeItemKey = useCallback((index: number, item: ChatMessageResponse) => getChatFrameItemKey(index, item), []);
+  const renderDebugRef = useRef<{ renderCount: number; keys: string[] }>({ renderCount: 0, keys: [] });
+
+  useEffect(() => {
+    const nextKeys = historyMessages.map((item, index) => computeItemKey(index, item));
+    const prevKeys = renderDebugRef.current.keys;
+    let changedKeyCount = 0;
+    const maxLen = Math.max(prevKeys.length, nextKeys.length);
+    for (let index = 0; index < maxLen; index++) {
+      if (prevKeys[index] !== nextKeys[index]) {
+        changedKeyCount += 1;
+      }
+    }
+    renderDebugRef.current = {
+      renderCount: renderDebugRef.current.renderCount + 1,
+      keys: nextKeys,
+    };
+    console.log("[TC_MSG_RENDER]", {
+      renderCount: renderDebugRef.current.renderCount,
+      messageLength: historyMessages.length,
+      changedKeyCount,
+      tailKeys: nextKeys.slice(-8),
+    });
+  }, [computeItemKey, historyMessages]);
+
+  return (
+    <>
+      <div
+        className="overflow-y-auto flex flex-col relative h-full"
+        onContextMenu={onContextMenu}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
+        <SelectionToolbar
+          selectedCount={selectedMessageIds.size}
+          totalCount={historyMessages.length}
+          isSelecting={isSelecting}
+          isSpaceOwner={isSpaceOwner}
+          onCancel={onCancelSelection}
+          onSelectAll={onSelectAll}
+          onRegexFilter={onRegexFilter}
+          onExportFile={onExportFile}
+          onExportImage={() => setIsExportImageWindowOpen(true)}
+          onForward={() => setIsForwardWindowOpen(true)}
+          onBatchDelete={handleBatchDelete}
+        />
+        <div className="h-full flex-1">
+          <Virtuoso
+            data={historyMessages}
+            firstItemIndex={0}
+            initialTopMostItemIndex={historyMessages.length - 1}
+            followOutput={true}
+            // 媒体消息（音频/视频）离开视区后若立即被回收，会导致播放状态丢失或重新加载。
+            // 适当增加 overscan，减少短距离滚动造成的卸载重建。
+            overscan={480}
+            computeItemKey={computeItemKey}
+            ref={virtuosoRef}
+            scrollerRef={(ref) => {
+              scrollerRef.current = ref instanceof HTMLElement ? ref : null;
+            }}
+            context={{
+              isAtTopRef,
+            }}
+            rangeChanged={({ endIndex }) => {
+              setCurrentVirtuosoIndex(endIndex);
+            }}
+            itemContent={(index, chatMessageResponse) => renderMessage(index, chatMessageResponse)}
+            atBottomStateChange={(atBottom) => {
+              if (enableUnreadIndicator) {
+                atBottom && updateLastReadSyncId(roomId);
+              }
+              isAtBottomRef.current = atBottom;
+            }}
+            atTopStateChange={(atTop) => {
+              isAtTopRef.current = atTop;
+            }}
+            components={{
+              Header,
+            }}
+            atTopThreshold={1200}
+            atBottomThreshold={200}
+          />
+        </div>
+        <UnreadIndicator
+          enabled={enableUnreadIndicator}
+          unreadMessageNumber={unreadMessageNumber}
+          historyLength={historyMessages.length}
+          isAtBottom={isAtBottomRef.current}
+          onScrollToBottom={scrollToBottom}
+        />
+      </div>
+    </>
+  );
+}

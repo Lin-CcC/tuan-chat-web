@@ -1,0 +1,79 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultListRoomMember } from '../models/ApiResultListRoomMember';
+import type { ApiResultVoid } from '../models/ApiResultVoid';
+import type { RoomMemberAddRequest } from '../models/RoomMemberAddRequest';
+import type { RoomMemberDeleteRequest } from '../models/RoomMemberDeleteRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class RoomMemberControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 新增房间pl成员，如果将观战成员拉入房间，会自动成为pl
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public addMember1(
+        requestBody: RoomMemberAddRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/room/member/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 删除房间成员
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public deleteMember1(
+        requestBody: RoomMemberDeleteRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/room/member/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取房间成员列表
+     * @param roomId
+     * @returns ApiResultListRoomMember OK
+     * @throws ApiError
+     */
+    public getMemberList1(
+        roomId: number,
+    ): CancelablePromise<ApiResultListRoomMember> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/room/member/list',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+    /**
+     * 退出房间
+     * @param roomId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public exitRoom(
+        roomId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/room/member/exit',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+}

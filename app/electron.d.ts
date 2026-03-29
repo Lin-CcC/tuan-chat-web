@@ -1,0 +1,62 @@
+/* eslint-disable */
+// This declares a global interface for the electronAPI
+export type IElectronAPI = {
+  launchWebGAL: (payload?: {
+    gameDir?: string;
+  }) => Promise<{
+    ok: boolean;
+    port?: number;
+    error?: string;
+    openedUrl?: string;
+  }>;
+  novelaiGetClientSettings: (payload: {
+    token: string;
+    endpoint?: string;
+  }) => Promise<any>;
+  novelaiGenerateImage: (payload: {
+    token: string;
+    endpoint?: string;
+    mode?: "txt2img" | "img2img";
+    sourceImageBase64?: string;
+    prompt: string;
+    negativePrompt?: string;
+    model?: string;
+    width?: number;
+    height?: number;
+    steps?: number;
+    scale?: number;
+    sampler?: string;
+    noiseSchedule?: string;
+    cfgRescale?: number;
+    smea?: boolean;
+    smeaDyn?: boolean;
+    qualityToggle?: boolean;
+    strength?: number;
+    noise?: number;
+    seed?: number;
+  }) => Promise<{
+    dataUrl: string;
+    seed: number;
+    width: number;
+    height: number;
+    model: string;
+  }>;
+  showDesktopNotification?: (payload: {
+    title: string;
+    body: string;
+    icon?: string;
+    targetPath?: string;
+    tag?: string;
+    silent?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    reason?: string;
+  }>;
+};
+
+// This extends the global Window interface
+declare global {
+  interface Window {
+    electronAPI: IElectronAPI;
+  }
+}

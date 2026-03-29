@@ -1,0 +1,250 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultBoolean } from '../models/ApiResultBoolean';
+import type { ApiResultListSpace } from '../models/ApiResultListSpace';
+import type { ApiResultLong } from '../models/ApiResultLong';
+import type { ApiResultRoom } from '../models/ApiResultRoom';
+import type { ApiResultSpace } from '../models/ApiResultSpace';
+import type { ApiResultString } from '../models/ApiResultString';
+import type { ApiResultVoid } from '../models/ApiResultVoid';
+import type { RoomAddRequest } from '../models/RoomAddRequest';
+import type { SpaceAddRequest } from '../models/SpaceAddRequest';
+import type { SpaceArchiveRequest } from '../models/SpaceArchiveRequest';
+import type { SpaceCloneByCommitRequest } from '../models/SpaceCloneByCommitRequest';
+import type { SpaceCloneByRepositoryRequest } from '../models/SpaceCloneByRepositoryRequest';
+import type { SpaceExtraRequest } from '../models/SpaceExtraRequest';
+import type { SpaceExtraSetRequest } from '../models/SpaceExtraSetRequest';
+import type { SpaceOwnerTransferRequest } from '../models/SpaceOwnerTransferRequest';
+import type { SpaceUpdateRequest } from '../models/SpaceUpdateRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class SpaceControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 更新空间归档状态
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public updateSpaceArchiveStatus(
+        requestBody: SpaceArchiveRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/space',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 转让空间
+     * @param requestBody
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public transferSpaceOwner(
+        requestBody: SpaceOwnerTransferRequest,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/space/transfer',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取空间其他信息
+     * @param spaceId
+     * @param key
+     * @returns ApiResultString OK
+     * @throws ApiError
+     */
+    public getSpaceExtra(
+        spaceId: number,
+        key: string,
+    ): CancelablePromise<ApiResultString> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/space/extra',
+            query: {
+                'spaceId': spaceId,
+                'key': key,
+            },
+        });
+    }
+    /**
+     * 新增或修改空间其他信息
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public setSpaceExtra(
+        requestBody: SpaceExtraSetRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/space/extra',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 删除空间其他信息
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public deleteSpaceExtra(
+        requestBody: SpaceExtraRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/space/extra',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 更新空间信息（名称、头像、描述、规则）
+     * @param requestBody
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public updateSpace(
+        requestBody: SpaceUpdateRequest,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/space/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 创建空间
+     * @param requestBody
+     * @returns ApiResultSpace OK
+     * @throws ApiError
+     */
+    public createSpace(
+        requestBody: SpaceAddRequest,
+    ): CancelablePromise<ApiResultSpace> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/space/',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 创建房间
+     * @param requestBody
+     * @returns ApiResultRoom OK
+     * @throws ApiError
+     */
+    public createRoom(
+        requestBody: RoomAddRequest,
+    ): CancelablePromise<ApiResultRoom> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/space/room',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 根据commitId克隆空间
+     * @param requestBody
+     * @returns ApiResultLong OK
+     * @throws ApiError
+     */
+    public cloneByCommitId(
+        requestBody: SpaceCloneByCommitRequest,
+    ): CancelablePromise<ApiResultLong> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/space/clone',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 根据repositoryId克隆空间
+     * @param requestBody
+     * @returns ApiResultLong OK
+     * @throws ApiError
+     */
+    public cloneByRepositoryId(
+        requestBody: SpaceCloneByRepositoryRequest,
+    ): CancelablePromise<ApiResultLong> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/space/clone/repository',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取空间
+     * @param spaceId
+     * @param commitId
+     * @returns ApiResultSpace OK
+     * @throws ApiError
+     */
+    public getSpaceInfo(
+        spaceId: number,
+        commitId?: number,
+    ): CancelablePromise<ApiResultSpace> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/space/{spaceId}',
+            path: {
+                'spaceId': spaceId,
+            },
+            query: {
+                'commitId': commitId,
+            },
+        });
+    }
+    /**
+     * 解散空间
+     * @param spaceId
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public dissolveSpace(
+        spaceId: number,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/space/{spaceId}',
+            path: {
+                'spaceId': spaceId,
+            },
+        });
+    }
+    /**
+     * 获取当前用户加入的所有空间（包含归档）
+     * @returns ApiResultListSpace OK
+     * @throws ApiError
+     */
+    public getUserSpaces(): CancelablePromise<ApiResultListSpace> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/space/list',
+        });
+    }
+    /**
+     * 获取当前用户加入的未归档空间
+     * @returns ApiResultListSpace OK
+     * @throws ApiError
+     */
+    public getUserActiveSpaces(): CancelablePromise<ApiResultListSpace> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/space/list/active',
+        });
+    }
+}

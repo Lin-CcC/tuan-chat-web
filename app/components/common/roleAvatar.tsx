@@ -1,0 +1,168 @@
+import { use, useState } from "react";
+import { RoomContext } from "@/components/chat/core/roomContext";
+import ImgWithHoverToScale from "@/components/common/imgWithHoverToScale";
+import { RoleDetail } from "@/components/common/roleDetail";
+import { RoleDetailPagePopup } from "@/components/common/roleDetailPagePopup";
+import { ToastWindow } from "@/components/common/toastWindow/ToastWindowComponent";
+import { ROLE_DEFAULT_AVATAR_URL } from "@/constants/defaultAvatar";
+import { getScreenSize } from "@/utils/getScreenSize";
+import {
+  useGetRoleAvatarQuery,
+  useGetRoleAvatarsQuery,
+} from "../../../api/hooks/RoleAndAvatarHooks";
+
+const sizeMap = {
+  6: "w-6 h-6", // 24px
+  8: "w-8 h-8", // 32px
+  10: "w-10 h-10", // 40px
+  12: "w-12 h-12", // 48px
+  14: "w-14 h-14", // 56px
+  16: "w-16 h-16", // 64px
+  18: "w-18 h-18", // 72px
+  20: "w-20 h-20", // 80px
+  24: "w-24 h-24", // 96px
+  30: "w-30 h-30", // 120px
+  32: "w-32 h-32", // 128px
+  36: "w-36 h-36", // 144px
+} as const;
+
+/**
+ * 用户头像组件
+ * @param avatarId
+ * @param roleId 角色ID，如果使用stopToastWindow为false需要添加，仓库角色的avatar
+ * @param width 头像宽度尺寸
+ * @param isRounded 是否显示为圆形头像（true的时候是rounded-full，false的时候是rounded）
+ * @param withTitle 是否显示头像对应的标题（并非roleName）
+ * @param stopToastWindow 是否禁用点击弹出角色详情窗口，默认为false
+ * @param alt
+ * @param allowKickOut 是否允许被踢出，仓库角色是不可以的
+ * @param kickOutByManagerOnly 是否仅房主可踢出
+ * @param hoverToScale 是否允许鼠标悬停时放大
+ * @param detailVariant 详情弹窗形态：simple(旧) / page(复用角色页面)
+ */
+export default function RoleAvatarComponent({
+  avatarId,
+  avatarUrl,
+  avatarThumbUrl,
+  roleId,
+  roleType,
+  roleOwnerUserId,
+  roleState,
+  width,
+  isRounded,
+  // eslint-disable-next-line unused-imports/no-unused-vars
+  withTitle = false,
+  stopToastWindow = false,
+  alt = "avatar",
+  useDefaultAvatarFallback = true,
+  allowKickOut = true,
+  kickOutByManagerOnly = false,
+  hoverToScale = false,
+  detailVariant = "page",
+}: {
+  avatarId: number;
+  avatarUrl?: string;
+  avatarThumbUrl?: string;
+  roleId?: number;
+  roleType?: number;
+  roleOwnerUserId?: number;
+  roleState?: number;
+  width: keyof typeof sizeMap; // 头像的宽度
+  isRounded: boolean; // 是否是圆的
+  withTitle?: boolean; // 是否在下方显示标题
+  stopToastWindow?: boolean; // 点击后是否会产生roleDetail弹窗
+  alt?: string;
+  /** 当 avatarId <= 0 且无法从 roleId 找到可用头像时，是否回退到默认头像 */
+  useDefaultAvatarFallback?: boolean;
+  allowKickOut?: boolean;
+  kickOutByManagerOnly?: boolean;
+  hoverToScale?: boolean;
+  detailVariant?: "simple" | "page";
+}) {
+  const providedAvatarThumbUrl = (avatarThumbUrl ?? "").trim();
+  const providedAvatarUrl = (avatarUrl ?? "").trim();
+  const hasProvidedAvatarUrl = Boolean(providedAvatarThumbUrl || providedAvatarUrl);
+  const hasExplicitAvatarId = typeof avatarId === "number" && avatarId > 0;
+  const safeAvatarId = hasExplicitAvatarId ? avatarId : 0;
+  // 已有头像 URL 时优先直出，避免同一头像在列表场景再次触发 getRoleAvatar。
+  const shouldFetchAvatarById = hasExplicitAvatarId && !hasProvidedAvatarUrl;
+  const avatarQuery = useGetRoleAvatarQuery(safeAvatarId, { enabled: shouldFetchAvatarById });
+  const roleAvatar = avatarQuery.data?.data;
+  const shouldUseFallback = !hasExplicitAvatarId && !hasProvidedAvatarUrl && typeof roleId === "number" && roleId > 0;
+  const fallbackAvatarsQuery = useGetRoleAvatarsQuery(roleId ?? -1, { enabled: shouldUseFallback });
+  const fallbackAvatar = shouldUseFallback ? fallbackAvatarsQuery.data?.data?.[0] : undefined;
+  const defaultAvatarUrl = (hasExplicitAvatarId || useDefaultAvatarFallback) ? ROLE_DEFAULT_AVATAR_URL : "";
+  const fetchedAvatarUrl = hasExplicitAvatarId
+    ? (roleAvatar?.avatarThumbUrl || roleAvatar?.avatarUrl)
+    : (fallbackAvatar?.avatarThumbUrl || fallbackAvatar?.avatarUrl);
+  const displayAvatarUrl = providedAvatarThumbUrl || providedAvatarUrl || fetchedAvatarUrl || defaultAvatarUrl;
+  const roleIdTrue = roleId ?? roleAvatar?.roleId ?? fallbackAvatar?.roleId;
+  const hasAvatar = Boolean(displayAvatarUrl);
+
+  // 控制角色详情的toastWindow
+  const [isOpen, setIsOpen] = useState(false);
+
+  const roomContext = use(RoomContext);
+  const roomId = roomContext?.roomId ?? -1;
+
+  return (
+    <div className="flex flex-col items-center">
+      <div className="avatar">
+        <div
+          className={`${sizeMap[width]} ${isRounded ? "rounded-full" : "rounded"} ${hasAvatar ? "" : "bg-base-300"} text-center flex items-center justify-center overflow-hidden`}
+          onClick={() => { !stopToastWindow && setIsOpen(true); }}
+        >
+          {!hasAvatar
+            ? (
+                <span className={`${sizeMap[width]} text-sm`}>{alt}</span>
+              )
+            : (
+                <ImgWithHoverToScale
+                  enableScale={hoverToScale}
+                  src={displayAvatarUrl}
+                  alt={alt}
+                  className={`${!stopToastWindow && "hover:scale-110"} transition-transform w-full h-full object-cover`}
+                />
+              )}
+        </div>
+      </div>
+      {/* { */}
+      {/*  withTitle && <div className="text-xs truncate max-w-full">{avatarQuery.data?.data?.avatarTitle}</div> */}
+      {/* } */}
+      <div className="absolute">
+        {
+          (isOpen && !stopToastWindow && roomId) && (
+            <ToastWindow isOpen={isOpen} onClose={() => setIsOpen(false)} fullScreen={getScreenSize() === "sm"}>
+              <div className="justify-center w-full">
+                {detailVariant === "simple"
+                  ? (
+                      <RoleDetail
+                        roleId={roleIdTrue ?? -1}
+                        roleTypeHint={roleType}
+                        roleOwnerUserIdHint={roleOwnerUserId}
+                        roleStateHint={roleState}
+                        allowKickOut={allowKickOut}
+                        kickOutByManagerOnly={kickOutByManagerOnly}
+                        onClose={() => setIsOpen(false)}
+                      >
+                      </RoleDetail>
+                    )
+                  : (
+                      <RoleDetailPagePopup
+                        roleId={roleIdTrue ?? -1}
+                        roleTypeHint={roleType}
+                        roleOwnerUserIdHint={roleOwnerUserId}
+                        roleStateHint={roleState}
+                        allowKickOut={allowKickOut}
+                        kickOutByManagerOnly={kickOutByManagerOnly}
+                        onClose={() => setIsOpen(false)}
+                      />
+                    )}
+              </div>
+            </ToastWindow>
+          )
+        }
+      </div>
+    </div>
+  );
+}

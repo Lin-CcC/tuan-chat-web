@@ -1,0 +1,92 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultBoolean } from '../models/ApiResultBoolean';
+import type { ApiResultListMessageSessionResponse } from '../models/ApiResultListMessageSessionResponse';
+import type { ApiResultMessageSession } from '../models/ApiResultMessageSession';
+import type { ApiResultMessageSessionResponse } from '../models/ApiResultMessageSessionResponse';
+import type { SessionReadUpdateRequest } from '../models/SessionReadUpdateRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class MessageSessionService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 取消订阅房间
+     * @param roomId
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public unsubscribeRoom(
+        roomId: number,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/chat/session/unsubscribe',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+    /**
+     * 订阅房间
+     * @param roomId
+     * @returns ApiResultMessageSession OK
+     * @throws ApiError
+     */
+    public subscribeRoom(
+        roomId: number,
+    ): CancelablePromise<ApiResultMessageSession> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/chat/session/subscribe',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+    /**
+     * 更新已读位置
+     * @param requestBody
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public updateReadPosition1(
+        requestBody: SessionReadUpdateRequest,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/chat/session/read',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取用户在指定房间的会话信息
+     * @param roomId
+     * @returns ApiResultMessageSessionResponse OK
+     * @throws ApiError
+     */
+    public getRoomSession(
+        roomId: number,
+    ): CancelablePromise<ApiResultMessageSessionResponse> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/chat/session/room',
+            query: {
+                'roomId': roomId,
+            },
+        });
+    }
+    /**
+     * 获取用户的所有会话列表
+     * @returns ApiResultListMessageSessionResponse OK
+     * @throws ApiError
+     */
+    public getUserSessions(): CancelablePromise<ApiResultListMessageSessionResponse> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/chat/session/list',
+        });
+    }
+}

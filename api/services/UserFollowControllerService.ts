@@ -1,0 +1,128 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultBoolean } from '../models/ApiResultBoolean';
+import type { ApiResultPageBaseRespFollowResponse } from '../models/ApiResultPageBaseRespFollowResponse';
+import type { ApiResultVoid } from '../models/ApiResultVoid';
+import type { PageBaseRequest } from '../models/PageBaseRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class UserFollowControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 获取某人关注列表
+     * 获取某人关注列表接口
+     * @param targetUserId
+     * @param requestBody
+     * @returns ApiResultPageBaseRespFollowResponse OK
+     * @throws ApiError
+     */
+    public followings(
+        targetUserId: number,
+        requestBody: PageBaseRequest,
+    ): CancelablePromise<ApiResultPageBaseRespFollowResponse> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/user/{targetUserId}/followings/page',
+            path: {
+                'targetUserId': targetUserId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取某人粉丝列表
+     * 获取某人粉丝列表接口
+     * @param targetUserId
+     * @param requestBody
+     * @returns ApiResultPageBaseRespFollowResponse OK
+     * @throws ApiError
+     */
+    public followers(
+        targetUserId: number,
+        requestBody: PageBaseRequest,
+    ): CancelablePromise<ApiResultPageBaseRespFollowResponse> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/user/{targetUserId}/followers/page',
+            path: {
+                'targetUserId': targetUserId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 判断是否关注某用户
+     * 判断是否关注某用户接口
+     * @param targetUserId
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public isFollow(
+        targetUserId: number,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/user/{targetUserId}/follow',
+            path: {
+                'targetUserId': targetUserId,
+            },
+        });
+    }
+    /**
+     * 用户关注
+     * 用户关注接口
+     * @param targetUserId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public follow(
+        targetUserId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/user/{targetUserId}/follow',
+            path: {
+                'targetUserId': targetUserId,
+            },
+        });
+    }
+    /**
+     * 用户取消关注
+     * 用户取消关注接口
+     * @param targetUserId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public unfollow(
+        targetUserId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/user/{targetUserId}/follow',
+            path: {
+                'targetUserId': targetUserId,
+            },
+        });
+    }
+    /**
+     * 获取我的好友列表
+     * 获取当前用户的互相关注好友列表
+     * @param requestBody
+     * @returns ApiResultPageBaseRespFollowResponse OK
+     * @throws ApiError
+     */
+    public friends(
+        requestBody: PageBaseRequest,
+    ): CancelablePromise<ApiResultPageBaseRespFollowResponse> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/user/friends/page',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+}

@@ -1,0 +1,149 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultListRoleAvatar } from '../models/ApiResultListRoleAvatar';
+import type { ApiResultLong } from '../models/ApiResultLong';
+import type { ApiResultRoleAvatar } from '../models/ApiResultRoleAvatar';
+import type { ApiResultVoid } from '../models/ApiResultVoid';
+import type { RoleAvatar } from '../models/RoleAvatar';
+import type { RoleAvatarCreateRequest } from '../models/RoleAvatarCreateRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class AvatarControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 根据id获取头像
+     * @param avatarId
+     * @returns ApiResultRoleAvatar OK
+     * @throws ApiError
+     */
+    public getRoleAvatar(
+        avatarId: number,
+    ): CancelablePromise<ApiResultRoleAvatar> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/avatar',
+            query: {
+                'avatarId': avatarId,
+            },
+        });
+    }
+    /**
+     * 根据头像id更新头像
+     * @param requestBody
+     * @returns ApiResultRoleAvatar OK
+     * @throws ApiError
+     */
+    public updateRoleAvatar(
+        requestBody: RoleAvatar,
+    ): CancelablePromise<ApiResultRoleAvatar> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/avatar',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 创建头像，并返回头像ID
+     * @param requestBody
+     * @returns ApiResultLong OK
+     * @throws ApiError
+     */
+    public setRoleAvatar(
+        requestBody: RoleAvatarCreateRequest,
+    ): CancelablePromise<ApiResultLong> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/avatar',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 根据id删除头像
+     * @param avatarId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public deleteRoleAvatar(
+        avatarId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/avatar',
+            query: {
+                'avatarId': avatarId,
+            },
+        });
+    }
+    /**
+     * 恢复头像
+     * @param avatarId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public restoreRoleAvatar(
+        avatarId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'PUT',
+            url: '/avatar/trash/restore',
+            query: {
+                'avatarId': avatarId,
+            },
+        });
+    }
+    /**
+     * 获取角色回收站的头像
+     * @param roleId
+     * @returns ApiResultListRoleAvatar OK
+     * @throws ApiError
+     */
+    public getDeletedRoleAvatars(
+        roleId: number,
+    ): CancelablePromise<ApiResultListRoleAvatar> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/avatar/trash/list',
+            query: {
+                'roleId': roleId,
+            },
+        });
+    }
+    /**
+     * 获取角色所有的头像
+     * @param roleId
+     * @returns ApiResultListRoleAvatar OK
+     * @throws ApiError
+     */
+    public getRoleAvatars(
+        roleId: number,
+    ): CancelablePromise<ApiResultListRoleAvatar> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/avatar/list',
+            query: {
+                'roleId': roleId,
+            },
+        });
+    }
+    /**
+     * 清空角色头像回收站（物理删除）
+     * @param roleId
+     * @returns ApiResultVoid OK
+     * @throws ApiError
+     */
+    public clearDeletedRoleAvatars(
+        roleId: number,
+    ): CancelablePromise<ApiResultVoid> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/avatar/trash/clear',
+            query: {
+                'roleId': roleId,
+            },
+        });
+    }
+}

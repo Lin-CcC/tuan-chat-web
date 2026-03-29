@@ -1,0 +1,161 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultBoolean } from '../models/ApiResultBoolean';
+import type { ApiResultCommentVO } from '../models/ApiResultCommentVO';
+import type { ApiResultInteger } from '../models/ApiResultInteger';
+import type { ApiResultListCommentTimelineVO } from '../models/ApiResultListCommentTimelineVO';
+import type { ApiResultListCommentVO } from '../models/ApiResultListCommentVO';
+import type { ApiResultLong } from '../models/ApiResultLong';
+import type { ApiResultMapLongInteger } from '../models/ApiResultMapLongInteger';
+import type { CommentAddRequest } from '../models/CommentAddRequest';
+import type { CommentChildPageRequest } from '../models/CommentChildPageRequest';
+import type { CommentCountRequest } from '../models/CommentCountRequest';
+import type { CommentPageRequest } from '../models/CommentPageRequest';
+import type { CommentTimelinePageRequest } from '../models/CommentTimelinePageRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class CommentControllerService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 获取评论
+     * 根据评论ID获取评论详情
+     * @param commentId
+     * @returns ApiResultCommentVO OK
+     * @throws ApiError
+     */
+    public getComment(
+        commentId: number,
+    ): CancelablePromise<ApiResultCommentVO> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/comment',
+            query: {
+                'commentId': commentId,
+            },
+        });
+    }
+    /**
+     * 发布评论
+     * 发布新评论或回复评论
+     * @param requestBody
+     * @returns ApiResultLong OK
+     * @throws ApiError
+     */
+    public addComment(
+        requestBody: CommentAddRequest,
+    ): CancelablePromise<ApiResultLong> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/comment',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 删除评论
+     * 软删除评论
+     * @param commentId
+     * @returns ApiResultBoolean OK
+     * @throws ApiError
+     */
+    public deleteComment(
+        commentId: number,
+    ): CancelablePromise<ApiResultBoolean> {
+        return this.httpRequest.request({
+            method: 'DELETE',
+            url: '/comment',
+            query: {
+                'commentId': commentId,
+            },
+        });
+    }
+    /**
+     * 分页获取时间线评论
+     * 获取目标对象的单列时间线评论
+     * @param requestBody
+     * @returns ApiResultListCommentTimelineVO OK
+     * @throws ApiError
+     */
+    public pageTimelineComments(
+        requestBody: CommentTimelinePageRequest,
+    ): CancelablePromise<ApiResultListCommentTimelineVO> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/comment/timeline/page',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 分页获取评论
+     * 获取目标对象的树状评论
+     * @param requestBody
+     * @returns ApiResultListCommentVO OK
+     * @throws ApiError
+     */
+    public pageComments(
+        requestBody: CommentPageRequest,
+    ): CancelablePromise<ApiResultListCommentVO> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/comment/page',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 批量获取评论数量
+     * @param requestBody
+     * @returns ApiResultMapLongInteger OK
+     * @throws ApiError
+     */
+    public batchGetCommentCount(
+        requestBody: CommentCountRequest,
+    ): CancelablePromise<ApiResultMapLongInteger> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/comment/count/batch',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 分页获取子评论
+     * 按父评论分页获取直接子评论及其可见子树
+     * @param requestBody
+     * @returns ApiResultListCommentVO OK
+     * @throws ApiError
+     */
+    public pageChildComments(
+        requestBody: CommentChildPageRequest,
+    ): CancelablePromise<ApiResultListCommentVO> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/comment/children/page',
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+    /**
+     * 获取评论数量
+     * @param targetId
+     * @param targetType
+     * @returns ApiResultInteger OK
+     * @throws ApiError
+     */
+    public getCommentCount(
+        targetId: number,
+        targetType: string,
+    ): CancelablePromise<ApiResultInteger> {
+        return this.httpRequest.request({
+            method: 'GET',
+            url: '/comment/count',
+            query: {
+                'targetId': targetId,
+                'targetType': targetType,
+            },
+        });
+    }
+}

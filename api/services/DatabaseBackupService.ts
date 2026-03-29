@@ -1,0 +1,21 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResultString } from '../models/ApiResultString';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import type { BaseHttpRequest } from '../core/BaseHttpRequest';
+export class DatabaseBackupService {
+    constructor(public readonly httpRequest: BaseHttpRequest) {}
+    /**
+     * 手动触发数据库备份（调试接口，仅用户10001可用）
+     * @returns ApiResultString OK
+     * @throws ApiError
+     */
+    public triggerBackup(): CancelablePromise<ApiResultString> {
+        return this.httpRequest.request({
+            method: 'POST',
+            url: '/backup/trigger',
+        });
+    }
+}

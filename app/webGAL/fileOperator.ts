@@ -1,0 +1,355 @@
+import type { GameInfoDto } from "@/webGAL/apis";
+
+import { transcodeAudioBlobToOpusOrThrow } from "@/utils/audioTranscodeUtils";
+import { assertAudioUploadInputSizeOrThrow, buildDefaultAudioUploadTranscodeOptions } from "@/utils/audioUploadPolicy";
+import { getTerreApis } from "@/webGAL/index";
+import { getTerreBaseUrl } from "@/webGAL/terreConfig";
+import {
+  backfillMirroredWebgalAssetCache,
+  fetchObservedWebgalAssetBlob,
+  getMirroredWebgalAssetBlob,
+  mirrorWebgalAssetBlob,
+} from "@/webGAL/browserAssetCache";
+
+/**
+ * WebGAL 调试命令枚举
+ * 用于通过 WebSocket 与 WebGAL 引擎通信
+ */
+enum DebugCommand {
+  // 跳转到指定场景的指定行
+  JUMP,
+  // 同步自客户端
+  SYNCFC,
+  // 同步自编辑器
+  SYNCFE,
+  // 执行指令
+  EXE_COMMAND,
+  // 重新拉取模板样式文件
+  REFETCH_TEMPLATE_FILES,
+  // 执行临时场景（单条命令）
+  TEMP_SCENE,
+  // 设置组件可见性
+  SET_COMPONENT_VISIBILITY,
+  // 字体优化
+  SET_FONT_OPTIMIZATION,
+}
+
+type IFile = {
+  extName: string;
+  isDir: boolean;
+  name: string;
+  path: string;
+  pathFromBase?: string;
+};
+
+type UploadByUrlResponse = {
+  fileName?: string;
+};
+
+class TerreUploadByUrlError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "TerreUploadByUrlError";
+    this.status = status;
+  }
+}
+
+export type IDebugMessage = {
+  event: string;
+  data: {
+    command: DebugCommand;
+    sceneMsg: {
+      sentence: number;
+      scene: string;
+    };
+    message: string;
+    stageSyncMsg: any;
+  };
+};
+
+const AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "wav",
+  "aac",
+  "m4a",
+  "mp4",
+  "ogg",
+  "oga",
+  "opus",
+  "webm",
+  "flac",
+  "caf",
+]);
+
+function getFileExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex >= fileName.length - 1)
+    return "";
+  return fileName.slice(dotIndex + 1).toLowerCase();
+}
+
+function _replaceFileExtension(fileName: string, nextExt: string): string {
+  const dotIndex = fileName.lastIndexOf(".");
+  if (dotIndex > 0)
+    return `${fileName.slice(0, dotIndex)}.${nextExt}`;
+  return `${fileName}.${nextExt}`;
+}
+
+function _isLikelyAudioFileName(fileName: string): boolean {
+  const ext = getFileExtension(fileName);
+  return Boolean(ext && AUDIO_EXTENSIONS.has(ext));
+}
+
+/**
+ * 从 URL 中提取文件扩展名
+ * 支持处理带查询参数的 URL，以及没有扩展名的情况
+ * @param url 文件 URL
+ * @param defaultExt 默认扩展名（当无法提取时使用）
+ * @returns 文件扩展名（不包含点号）
+ */
+export function getFileExtensionFromUrl(url: string, defaultExt: string = "webp"): string {
+  try {
+    // 移除查询参数和 hash
+    const urlWithoutParams = url.split("?")[0].split("#")[0];
+    // 获取路径部分的最后一段
+    const lastSegment = urlWithoutParams.substring(urlWithoutParams.lastIndexOf("/") + 1);
+    // 检查是否包含扩展名
+    const dotIndex = lastSegment.lastIndexOf(".");
+    if (dotIndex > 0 && dotIndex < lastSegment.length - 1) {
+      const ext = lastSegment.substring(dotIndex + 1).toLowerCase();
+      // 验证是否是有效的图片扩展名
+      const validImageExtensions = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "avif"];
+      if (validImageExtensions.includes(ext)) {
+        return ext;
+      }
+    }
+    return defaultExt;
+  }
+  catch {
+    return defaultExt;
+  }
+}
+
+function isHttpSourceUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  }
+  catch {
+    return false;
+  }
+}
+
+async function uploadFileByTerreSourceUrl(sourceUrl: string, targetDirectory: string, fileName: string): Promise<string> {
+  const response = await fetch(`${getTerreBaseUrl()}/api/assets/uploadByUrl`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sourceUrl,
+      targetDirectory,
+      fileName,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new TerreUploadByUrlError(response.status, errorText || `uploadByUrl failed, status: ${response.status}`);
+  }
+
+  const result = await response.json() as UploadByUrlResponse;
+  if (!result.fileName) {
+    throw new Error("uploadByUrl returned empty fileName");
+  }
+
+  return result.fileName;
+}
+
+/**
+ * 上传文件的通用函数
+ * @param url 文件的url
+ * @param path webgal的文件目录
+ * @param fileName
+ */
+export async function uploadFile(url: string, path: string, fileName?: string | undefined): Promise<string> {
+  // 如果未定义fileName，那就使用url中的fileName
+  const newFileName = fileName || url.substring(url.lastIndexOf("/") + 1);
+
+  // 对音频统一转码压缩为 Opus（不兼容 Safari）；失败则阻止上传
+  // const shouldTranscodeAudioByName = isLikelyAudioFileName(newFileName);
+  // let targetFileName = shouldTranscodeAudioByName ? replaceFileExtension(newFileName, "opus") : newFileName;
+  // 暂时禁用强制转码 Opus，使用原文件格式（如 wav）
+  const targetFileName = newFileName;
+
+  const safeFileName = targetFileName.replace(/\P{ASCII}/gu, char =>
+    encodeURIComponent(char).replace(/%/g, ""));
+
+  if (await checkFileExist(path, safeFileName))
+    return safeFileName;
+
+  // const isAudioByResponse = typeof data.type === "string" && data.type.startsWith("audio/");
+  // const shouldTranscodeAudio = shouldTranscodeAudioByName || isAudioByResponse;
+  const shouldTranscodeAudio = false;
+
+  async function uploadBlobWithOptionalMirror(blob: Blob, shouldMirrorRemoteUrl: boolean): Promise<string> {
+    if (shouldMirrorRemoteUrl) {
+      void mirrorWebgalAssetBlob(url, blob).catch(error =>
+        console.warn("[fileOperator] 写入浏览器资源镜像缓存失败:", error));
+    }
+
+    if (shouldTranscodeAudio) {
+      assertAudioUploadInputSizeOrThrow(blob.size);
+    }
+
+    const file = shouldTranscodeAudio
+      ? await transcodeAudioBlobToOpusOrThrow(
+          blob,
+          safeFileName,
+          buildDefaultAudioUploadTranscodeOptions(blob.size),
+        )
+      : new File([blob], safeFileName, { type: blob.type || "application/octet-stream" });
+    const uploadedFileName = shouldTranscodeAudio ? file.name : safeFileName;
+
+    const formData = new FormData();
+    formData.append("files", file);
+    formData.append("targetDirectory", path);
+
+    await getTerreApis().assetsControllerUpload(formData);
+    return uploadedFileName;
+  }
+
+  const shouldMirrorRemoteUrl = isHttpSourceUrl(url);
+
+  if (shouldMirrorRemoteUrl) {
+    const mirroredBlob = await getMirroredWebgalAssetBlob(url);
+    if (mirroredBlob) {
+      return await uploadBlobWithOptionalMirror(mirroredBlob, false);
+    }
+
+    const observedBlob = await fetchObservedWebgalAssetBlob(url);
+    if (observedBlob) {
+      return await uploadBlobWithOptionalMirror(observedBlob, false);
+    }
+  }
+
+  if (shouldMirrorRemoteUrl) {
+    try {
+      const uploadedFileName = await uploadFileByTerreSourceUrl(url, path, safeFileName);
+      // Terre 直拉成功后，异步把资源回填到前端镜像缓存，下一次优先命中本地缓存。
+      void backfillMirroredWebgalAssetCache(url);
+      return uploadedFileName;
+    }
+    catch (error) {
+      const unsupported = error instanceof TerreUploadByUrlError
+        && (error.status === 404 || error.status === 405);
+      if (!unsupported) {
+        throw error;
+      }
+      console.warn("[fileOperator] 当前 Terre 不支持 uploadByUrl，回退到浏览器上传流程", error);
+    }
+  }
+
+  const response = await fetch(url, shouldMirrorRemoteUrl ? { cache: "force-cache" } : undefined);
+  if (!response.ok)
+    throw new Error(`Failed to fetch file: ${response.statusText}`);
+  const data = await response.blob();
+
+  /*
+  if (shouldTranscodeAudio && !shouldTranscodeAudioByName) {
+    targetFileName = replaceFileExtension(newFileName, "webm");
+    safeFileName = targetFileName.replace(/\P{ASCII}/gu, char =>
+      encodeURIComponent(char).replace(/%/g, ""));
+
+    if (await checkFileExist(path, safeFileName))
+      return safeFileName;
+  }
+  */
+
+  return await uploadBlobWithOptionalMirror(data, shouldMirrorRemoteUrl);
+};
+
+export async function readTextFile(game: string, path: string): Promise<string> {
+  const url = `${getTerreBaseUrl()}/games/${game}/game/${path}`;
+  const response = await fetch(url);
+  if (!response.ok)
+    throw new Error(`Failed to read file: ${response.statusText}`);
+  return await response.text();
+}
+
+export async function checkGameExist(game: string): Promise<boolean> {
+  const gameList: GameInfoDto[] = await getTerreApis().manageGameControllerGetGameList();
+  if (!gameList)
+    return false;
+  return gameList.some(item => item.dir === game);
+}
+
+async function fetchFolder(folderPath: string) {
+  const res = await getTerreApis().assetsControllerReadAssets(folderPath);
+  const data = res as unknown as object;
+  if ("dirInfo" in data && data.dirInfo) {
+    const dirInfo = (data.dirInfo as IFile[]).map(item => ({ ...item, path: `${folderPath}/${item.name}` }));
+    const dirs = dirInfo.filter(item => item.isDir);
+    const files = dirInfo.filter(item => !item.isDir).filter(e => e.name !== ".gitkeep");
+    return [...dirs, ...files];
+  }
+  else {
+    return [];
+  }
+}
+
+function getHttpStatusFromError(error: unknown): number | null {
+  if (!(error instanceof Error))
+    return null;
+  const match = error.message.match(/status:\s*(\d+)/i);
+  if (!match)
+    return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function checkFileExist(currentPathString: string, fileName: string): Promise<boolean> {
+  try {
+    const files = await fetchFolder(currentPathString);
+    return files.some(item => item.name === fileName);
+  }
+  catch (error) {
+    const status = getHttpStatusFromError(error);
+    if (status === 404 || status === 500) {
+      console.warn(`[fileOperator] 读取目录失败(${status})，按文件不存在处理: ${currentPathString}`);
+      return false;
+    }
+    throw error;
+  }
+}
+
+/**
+ * 生成 WebGAL JUMP 同步消息
+ * @param sceneName 场景文件名（含 .txt 后缀）
+ * @param lineNumber 跳转到的行号
+ * @param forceReload 是否强制重新加载场景（用于文件内容变更后刷新）
+ */
+export function getAsyncMsg(sceneName: string, lineNumber: number, forceReload: boolean = false): IDebugMessage {
+  return {
+    event: "message",
+    data: {
+      command: DebugCommand.JUMP,
+      sceneMsg: {
+        scene: sceneName,
+        sentence: lineNumber,
+      },
+      stageSyncMsg: {},
+      // 使用 'exp' 模式可以触发更快的同步，'Sync' 是普通同步
+      // 强制重新加载时使用 'Sync' 确保场景完全刷新
+      message: forceReload ? "Sync" : "exp",
+    },
+  };
+}
+
+/**
+ * 生成 WebGAL 临时场景执行命令
+ * 可以用来执行单条 WebGAL 命令而不改变当前场景状态
+ * @param command WebGAL 命令字符串
+ */

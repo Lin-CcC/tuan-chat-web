@@ -1,0 +1,170 @@
+import { AddressBookIcon, UsersIcon } from "@phosphor-icons/react";
+import { use, useMemo, useState } from "react";
+import toast from "react-hot-toast";
+import { RoomContext } from "@/components/chat/core/roomContext";
+import MemberLists from "@/components/chat/shared/components/memberLists";
+import { canManageRoomRoles, hasHostPrivileges } from "@/components/chat/utils/memberPermissions";
+import AddMemberWindow from "@/components/chat/window/addMemberWindow";
+import useSearchParamsState from "@/components/common/customHooks/useSearchParamState";
+import { ToastWindow } from "@/components/common/toastWindow/ToastWindowComponent";
+import { getScreenSize } from "@/utils/getScreenSize";
+import { useAddRoomMemberMutation, useAddRoomRoleMutation, useGetRoomNpcRoleQuery, useGetRoomRoleQuery } from "../../../../../api/hooks/chatQueryHooks";
+import RoleList from "../../shared/components/roleLists";
+import { AddNpcRoleWindow } from "../../window/addNpcRoleWindow";
+import { AddRoleWindow } from "../../window/addRoleWindow";
+
+export default function RoomUserList({ type}: { type: string }) {
+  const isRole = type === "Role";
+
+  const roomContext = use(RoomContext);
+  const roomId = roomContext.roomId ?? -1;
+  const members = roomContext.roomMembers;
+  // 全局登录用户对应的member
+  const curMember = roomContext.curMember;
+  const currentMemberType = curMember?.memberType;
+  const hasHostAccess = hasHostPrivileges(currentMemberType);
+  const canAddRole = canManageRoomRoles(currentMemberType);
+  const [isMemberHandleOpen, setIsMemberHandleOpen] = useSearchParamsState<boolean>("memberSettingPop", false);
+
+  const addMemberMutation = useAddRoomMemberMutation();
+
+  async function handleAddMember(userId: number) {
+    addMemberMutation.mutate({
+      roomId,
+      userIdList: [userId],
+    }, {
+      onSettled: () => {
+        setIsMemberHandleOpen(false);
+        toast("添加成员成功");
+      },
+    });
+  }
+
+  const roomRolesQuery = useGetRoomRoleQuery(roomId);
+  const roomRoles = useMemo(() => roomRolesQuery.data?.data ?? [], [roomRolesQuery.data?.data]);
+
+  const npcRolesQuery = useGetRoomNpcRoleQuery(roomId);
+  const npcRoles = useMemo(() => npcRolesQuery.data?.data ?? [], [npcRolesQuery.data?.data]);
+
+  const [isRoleHandleOpen, setIsRoleHandleOpen] = useState<boolean>(false);
+  const [isNpcRoleHandleOpen, setIsNpcRoleHandleOpen] = useState<boolean>(false);
+
+  const addRoleMutation = useAddRoomRoleMutation();
+
+  const handleAddRole = async (roleId: number) => {
+    addRoleMutation.mutate(
+      { roomId, roleIdList: [roleId] },
+      {
+        onSettled: () => {
+          toast("添加角色成功");
+        },
+      },
+    );
+  };
+
+  const handleAddNpcRole = async (roleId: number) => {
+    addRoleMutation.mutate(
+      { roomId, roleIdList: [roleId] },
+      {
+        onSettled: () => {
+          toast("添加NPC成功");
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="h-full min-h-0 p-2 flex flex-col items-stretch">
+      <div className="flex flex-row justify-between items-center gap-2 w-full mt-2">
+        <div className="flex items-center gap-2">
+          {isRole
+            ? (
+                <>
+                  <AddressBookIcon className="size-5" />
+                  <p className="text-start font-semibold">
+                    角色列表-
+                    {roomRoles.length + npcRoles.length}
+                  </p>
+                </>
+              )
+            : (
+                <>
+                  <UsersIcon className="inline size-5" />
+                  <p className="text-start font-semibold">
+                    群成员-
+                    {members.length}
+                  </p>
+                </>
+              )}
+        </div>
+
+        <div className="flex gap-2">
+          {!isRole && hasHostAccess && (
+            <button
+              className="btn btn-dash btn-info"
+              type="button"
+              onClick={() => setIsMemberHandleOpen(true)}
+            >
+              添加成员
+            </button>
+          )}
+          {isRole && canAddRole && (
+            <button
+              type="button"
+              className="btn btn-xs btn-dash btn-info"
+              onClick={() => setIsRoleHandleOpen(true)}
+            >
+              角色+
+            </button>
+          )}
+          {isRole && hasHostAccess && (
+            <button
+              type="button"
+              className="btn btn-xs btn-dash btn-info"
+              onClick={() => setIsNpcRoleHandleOpen(true)}
+            >
+              NPC+
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="divider w-full" />
+
+      <div
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full flex flex-col items-stretch gap-2"
+      >
+        {isRole
+          ? (
+              <>
+                <RoleList roles={roomRoles} className={getScreenSize() === "sm" ? "w-full" : "w-full max-w-md"} />
+                <RoleList
+                  roles={npcRoles}
+                  className={getScreenSize() === "sm" ? "w-full" : "w-full max-w-md"}
+                  isNpcRole={true}
+                  allowKickOut={true}
+                  kickOutByManagerOnly={true}
+                />
+              </>
+            )
+          : (
+              <MemberLists
+                members={members}
+                className={getScreenSize() === "sm" ? "w-full" : "w-full max-w-md"}
+                isSpace={false}
+              />
+            )}
+      </div>
+
+      <ToastWindow isOpen={isMemberHandleOpen} onClose={() => setIsMemberHandleOpen(false)}>
+        <AddMemberWindow handleAddMember={handleAddMember} showSpace={true} />
+      </ToastWindow>
+      {/* 弹窗 */}
+      <ToastWindow isOpen={isRoleHandleOpen} onClose={() => setIsRoleHandleOpen(false)}>
+        <AddRoleWindow handleAddRole={handleAddRole} />
+      </ToastWindow>
+      <ToastWindow isOpen={isNpcRoleHandleOpen} onClose={() => setIsNpcRoleHandleOpen(false)}>
+        <AddNpcRoleWindow handleAddRole={handleAddNpcRole} />
+      </ToastWindow>
+    </div>
+  );
+}
