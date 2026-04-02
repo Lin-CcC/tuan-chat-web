@@ -990,6 +990,14 @@ export default function MaterialPreviewFloat({
   const inlineEditRef = useRef<HTMLInputElement | null>(null);
   const [keyword, setKeyword] = useState("");
   const [viewMode, setViewMode] = useState<"icon" | "list">("icon");
+  const listBodyHScrollRef = useRef<HTMLDivElement | null>(null);
+  const listBarHScrollRef = useRef<HTMLDivElement | null>(null);
+  const listHSyncingRef = useRef(false);
+  const [listHScroll, setListHScroll] = useState(() => ({
+    max: 0,
+    value: 0,
+    width: 0,
+  }));
   const [thumbSize, setThumbSize] = useState(136);
   const listThumbBox = useMemo(() => {
     // Keep this in sync with the range slider: make list preview react to thumbSize as well.
@@ -998,6 +1006,79 @@ export default function MaterialPreviewFloat({
     const h = clamp(Math.round((w * 9) / 16), 72, 120);
     return { w, h };
   }, [thumbSize]);
+
+  const syncListHScrollMetrics = useCallback(() => {
+    if (viewMode !== "list") {
+      setListHScroll({ max: 0, value: 0, width: 0 });
+      return;
+    }
+    const el = listBodyHScrollRef.current;
+    if (!el) return;
+    const width = Math.max(0, el.scrollWidth);
+    const max = Math.max(0, el.scrollWidth - el.clientWidth);
+    const value = clamp(el.scrollLeft, 0, max);
+    setListHScroll({ max, value, width });
+  }, [viewMode]);
+
+  useLayoutEffect(() => {
+    if (viewMode !== "list") {
+      setListHScroll({ max: 0, value: 0, width: 0 });
+      return;
+    }
+
+    const bodyEl = listBodyHScrollRef.current;
+    const barEl = listBarHScrollRef.current;
+    if (!bodyEl || !barEl) {
+      syncListHScrollMetrics();
+      return;
+    }
+
+    let raf = 0;
+    const scheduleMetrics = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        syncListHScrollMetrics();
+      });
+    };
+
+    const syncBarFromBody = () => {
+      if (!barEl) return;
+      if (listHSyncingRef.current) return;
+      listHSyncingRef.current = true;
+      barEl.scrollLeft = bodyEl.scrollLeft;
+      listHSyncingRef.current = false;
+      scheduleMetrics();
+    };
+
+    const syncBodyFromBar = () => {
+      if (listHSyncingRef.current) return;
+      listHSyncingRef.current = true;
+      bodyEl.scrollLeft = barEl.scrollLeft;
+      listHSyncingRef.current = false;
+      scheduleMetrics();
+    };
+
+    bodyEl.addEventListener("scroll", syncBarFromBody, { passive: true });
+    barEl.addEventListener("scroll", syncBodyFromBar, { passive: true });
+
+    const ro = new ResizeObserver(() => scheduleMetrics());
+    ro.observe(bodyEl);
+    if (bodyEl.firstElementChild instanceof HTMLElement)
+      ro.observe(bodyEl.firstElementChild);
+    ro.observe(barEl);
+
+    // Initial sync: align bar with current body scroll.
+    syncBarFromBody();
+    scheduleMetrics();
+
+    return () => {
+      bodyEl.removeEventListener("scroll", syncBarFromBody);
+      barEl.removeEventListener("scroll", syncBodyFromBar);
+      ro.disconnect();
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [syncListHScrollMetrics, viewMode]);
   const defaultUseBackend = !(import.meta.env.MODE === "test");
   const [useBackend] = useLocalStorage<boolean>(
     "tc:material-package:use-backend",
@@ -3348,480 +3429,527 @@ export default function MaterialPreviewFloat({
           )}
 
           {content && viewMode === "list" && (
-            <div className="border border-[color:var(--tc-mpf-item-border)] overflow-hidden bg-[color:var(--tc-mpf-surface)]">
+            <div className="border border-[color:var(--tc-mpf-item-border)] bg-[color:var(--tc-mpf-surface)]">
               <div
-                className={`grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 bg-[color:var(--tc-mpf-surface-2)] border-b border-[color:var(--tc-mpf-border)] text-[11px] font-semibold text-[color:var(--tc-mpf-icon)]`}
+                ref={listBodyHScrollRef}
+                className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
-                <div className="opacity-90">名称</div>
-                {!compactList && <div className="opacity-90">备注</div>}
-                <div className="text-right opacity-90">类型</div>
-              </div>
-              <div>
-                {visibleNodes.map((node, nodeIndex) => {
-                  const isFolder = node.type === "folder";
-                  const name = node.name;
-                  const isSelected = Boolean(
-                    selectedItem &&
-                    selectedItem.type === node.type &&
-                    selectedItem.name === name,
-                  );
-                  const key = `${node.type}:${name}`;
-                  const reactKey = `${node.type}:${folderPath.join("/")}:${name}:${nodeIndex}`;
-                  const isReorderTarget = mpfReorderDropTarget?.key === key;
-                  const reorderPlacement = isReorderTarget
-                    ? mpfReorderDropTarget?.placement
-                    : null;
-                  const isMoveIntoTarget = mpfMoveIntoDropTargetKey === key;
-                  const thumbUrl = isFolder ? null : getMaterialThumbUrl(node);
-                  const unuploadedHint =
-                    useBackend && !isFolder
-                      ? getMaterialUnuploadedHint(node)
-                      : null;
-                  const annotations = isFolder
-                    ? []
-                    : getMaterialAnnotations(node);
-                  const displayChips = annotations.slice(0, 3);
-                  const moreCount = Math.max(
-                    0,
-                    annotations.length - displayChips.length,
-                  );
-                  const baseType = getNodeBaseType(node);
-                  const folderCountText = isFolder
-                    ? `${node.children?.length ?? 0} 项`
-                    : "";
-                  return (
-                    <div
-                      key={reactKey}
-                      className={`relative grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 text-xs border-t border-[color:var(--tc-mpf-border)] cursor-pointer ${
-                        isSelected
-                          ? "bg-[color:var(--tc-mpf-selected)]"
-                          : "hover:bg-[color:var(--tc-mpf-surface-3)]"
-                      } ${isMoveIntoTarget ? "ring-1 ring-[color:var(--tc-mpf-accent)]" : ""}`}
-                      draggable
-                      onDragStart={(e) => {
-                        if (isInlineClickTarget(e.target)) {
-                          e.preventDefault();
-                          return;
-                        }
-                        activeMpfNodeDrag = null;
-                        e.dataTransfer.effectAllowed = "copyMove";
+                <div className={compactList ? "min-w-[320px]" : "min-w-max"}>
+                  <div
+                    className={`grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 bg-[color:var(--tc-mpf-surface-2)] border-b border-[color:var(--tc-mpf-border)] text-[11px] font-semibold text-[color:var(--tc-mpf-icon)]`}
+                  >
+                    <div className="opacity-90">名称</div>
+                    {!compactList && <div className="opacity-90">备注</div>}
+                    <div className="text-right opacity-90">类型</div>
+                  </div>
+                  <div>
+                    {visibleNodes.map((node, nodeIndex) => {
+                      const isFolder = node.type === "folder";
+                      const name = node.name;
+                      const isSelected = Boolean(
+                        selectedItem &&
+                        selectedItem.type === node.type &&
+                        selectedItem.name === name,
+                      );
+                      const key = `${node.type}:${name}`;
+                      const reactKey = `${node.type}:${folderPath.join("/")}:${name}:${nodeIndex}`;
+                      const isReorderTarget = mpfReorderDropTarget?.key === key;
+                      const reorderPlacement = isReorderTarget
+                        ? mpfReorderDropTarget?.placement
+                        : null;
+                      const isMoveIntoTarget = mpfMoveIntoDropTargetKey === key;
+                      const thumbUrl = isFolder
+                        ? null
+                        : getMaterialThumbUrl(node);
+                      const unuploadedHint =
+                        useBackend && !isFolder
+                          ? getMaterialUnuploadedHint(node)
+                          : null;
+                      const annotations = isFolder
+                        ? []
+                        : getMaterialAnnotations(node);
+                      const displayChips = annotations.slice(0, 3);
+                      const moreCount = Math.max(
+                        0,
+                        annotations.length - displayChips.length,
+                      );
+                      const baseType = getNodeBaseType(node);
+                      const folderCountText = isFolder
+                        ? `${node.children?.length ?? 0} 项`
+                        : "";
+                      return (
+                        <div
+                          key={reactKey}
+                          className={`relative grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 text-xs border-t border-[color:var(--tc-mpf-border)] cursor-pointer ${
+                            isSelected
+                              ? "bg-[color:var(--tc-mpf-selected)]"
+                              : "hover:bg-[color:var(--tc-mpf-surface-3)]"
+                          } ${isMoveIntoTarget ? "ring-1 ring-[color:var(--tc-mpf-accent)]" : ""}`}
+                          draggable
+                          onDragStart={(e) => {
+                            if (isInlineClickTarget(e.target)) {
+                              e.preventDefault();
+                              return;
+                            }
+                            activeMpfNodeDrag = null;
+                            e.dataTransfer.effectAllowed = "copyMove";
 
-                        const materialPreviewPayload: MaterialPreviewPayload = {
-                          ...(payload.scope ? { scope: payload.scope } : {}),
-                          ...(typeof payload.spaceId === "number" &&
-                          payload.spaceId > 0
-                            ? { spaceId: payload.spaceId }
-                            : {}),
-                          kind: node.type,
-                          packageId: selectedPackageId,
-                          label: name,
-                          path: [
-                            ...folderPath.map((n) => `folder:${n}`),
-                            node.type === "folder"
-                              ? `folder:${name}`
-                              : `material:${name}`,
-                          ],
-                        };
-                        setMaterialPreviewDragData(
-                          e.dataTransfer,
-                          materialPreviewPayload,
-                        );
-                        setMaterialPreviewDragOrigin(
-                          e.dataTransfer,
-                          dragOrigin === "docked" ? "docked" : "tree",
-                        );
-                        setMpfNodeDragData(e.dataTransfer, {
-                          packageId: selectedPackageId,
-                          folderPath: [...folderPath],
-                          kind: node.type,
-                          name,
-                          materialPreview: materialPreviewPayload,
-                        });
-                        clearMpfDropTargets();
-                      }}
-                      onDragOver={(e) => {
-                        const source = getMpfNodeDragData(e.dataTransfer);
-                        if (!source) return;
-                        if (
-                          Number(source.packageId) !== Number(selectedPackageId)
-                        )
-                          return;
-                        if (!folderPathEqual(source.folderPath, folderPath))
-                          return;
-
-                        const rect = (
-                          e.currentTarget as HTMLElement
-                        ).getBoundingClientRect();
-                        const intent = computeMpfDropIntent({
-                          viewMode: "list",
-                          targetKind: node.type,
-                          targetRect: rect,
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                        });
-                        if (intent === "none") {
-                          if (
-                            mpfReorderDropTarget?.key === key ||
-                            mpfMoveIntoDropTargetKey === key
-                          ) {
+                            const materialPreviewPayload: MaterialPreviewPayload =
+                              {
+                                ...(payload.scope
+                                  ? { scope: payload.scope }
+                                  : {}),
+                                ...(typeof payload.spaceId === "number" &&
+                                payload.spaceId > 0
+                                  ? { spaceId: payload.spaceId }
+                                  : {}),
+                                kind: node.type,
+                                packageId: selectedPackageId,
+                                label: name,
+                                path: [
+                                  ...folderPath.map((n) => `folder:${n}`),
+                                  node.type === "folder"
+                                    ? `folder:${name}`
+                                    : `material:${name}`,
+                                ],
+                              };
+                            setMaterialPreviewDragData(
+                              e.dataTransfer,
+                              materialPreviewPayload,
+                            );
+                            setMaterialPreviewDragOrigin(
+                              e.dataTransfer,
+                              dragOrigin === "docked" ? "docked" : "tree",
+                            );
+                            setMpfNodeDragData(e.dataTransfer, {
+                              packageId: selectedPackageId,
+                              folderPath: [...folderPath],
+                              kind: node.type,
+                              name,
+                              materialPreview: materialPreviewPayload,
+                            });
                             clearMpfDropTargets();
-                          }
-                          return;
-                        }
-                        if (intent === "moveInto") {
-                          if (node.type !== "folder") return;
-                          if (source.kind === "folder" && source.name === name)
-                            return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          e.dataTransfer.dropEffect = "move";
-                          setMpfMoveIntoDropTargetKey(key);
-                          setMpfReorderDropTarget(null);
-                          return;
-                        }
+                          }}
+                          onDragOver={(e) => {
+                            const source = getMpfNodeDragData(e.dataTransfer);
+                            if (!source) return;
+                            if (
+                              Number(source.packageId) !==
+                              Number(selectedPackageId)
+                            )
+                              return;
+                            if (!folderPathEqual(source.folderPath, folderPath))
+                              return;
 
-                        if (source.kind === node.type && source.name === name)
-                          return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.dataTransfer.dropEffect = "move";
-                        setMpfReorderDropTarget({
-                          key,
-                          placement:
-                            intent === "reorderAfter" ? "after" : "before",
-                        });
-                        setMpfMoveIntoDropTargetKey(null);
-                      }}
-                      onDragLeave={(e) => {
-                        const related = e.relatedTarget as HTMLElement | null;
-                        if (
-                          related &&
-                          (e.currentTarget as HTMLElement).contains(related)
-                        )
-                          return;
-                        if (mpfReorderDropTarget?.key === key) {
-                          setMpfReorderDropTarget(null);
-                        }
-                        if (mpfMoveIntoDropTargetKey === key) {
-                          setMpfMoveIntoDropTargetKey(null);
-                        }
-                      }}
-                      onDrop={(e) => {
-                        const source = getMpfNodeDragData(e.dataTransfer);
-                        if (!source) return;
-                        if (
-                          Number(source.packageId) !== Number(selectedPackageId)
-                        )
-                          return;
-                        if (!folderPathEqual(source.folderPath, folderPath))
-                          return;
-                        const intentFromState =
-                          mpfMoveIntoDropTargetKey === key
-                            ? ("moveInto" as const)
-                            : mpfReorderDropTarget?.key === key
-                              ? mpfReorderDropTarget.placement === "after"
-                                ? ("reorderAfter" as const)
-                                : ("reorderBefore" as const)
-                              : null;
-                        const rect = (
-                          e.currentTarget as HTMLElement
-                        ).getBoundingClientRect();
-                        const intent =
-                          intentFromState ??
-                          computeMpfDropIntent({
-                            viewMode: "list",
-                            targetKind: node.type,
-                            targetRect: rect,
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                          });
-                        if (intent === "none") return;
-                        if (intent === "moveInto" && node.type !== "folder")
-                          return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        clearMpfDropTargets();
-                        activeMpfNodeDrag = null;
-                        void applyPreviewNodeDropSafely({
-                          source,
-                          target: { kind: node.type, name },
-                          intent,
-                        });
-                      }}
-                      onDragEnd={() => {
-                        clearMpfDropTargets();
-                      }}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setSelectedItem({ type: node.type, name });
-                        if (isInlineClickTarget(e.target)) {
-                          lastClickRef.current = null;
-                          return;
-                        }
-                        const nowMs = Date.now();
-                        const prev = lastClickRef.current;
-                        lastClickRef.current = { key, timeMs: nowMs };
-                        if (
-                          !prev ||
-                          prev.key !== key ||
-                          nowMs - prev.timeMs > 350
-                        )
-                          return;
-                        lastClickRef.current = null;
-                        if (isFolder) {
-                          setFolderPath((prevPath) => [...prevPath, name]);
-                          setSelectedItem(null);
-                        }
-                      }}
-                    >
-                      {isReorderTarget && reorderPlacement === "before" && (
-                        <div className="pointer-events-none absolute left-3 right-3 top-0 h-[2px] bg-[color:var(--tc-mpf-accent)] rounded" />
-                      )}
-                      {isReorderTarget && reorderPlacement === "after" && (
-                        <div className="pointer-events-none absolute left-3 right-3 bottom-0 h-[2px] bg-[color:var(--tc-mpf-accent)] rounded" />
-                      )}
-                      <div className="flex items-center gap-3 min-w-0">
-                        {!compactList && (
-                          <div
-                            className="rounded-sm overflow-hidden border border-[color:var(--tc-mpf-item-border)] bg-[color:var(--tc-mpf-surface-2)] shrink-0 relative"
-                            style={{
-                              width: `${listThumbBox.w}px`,
-                              height: `${listThumbBox.h}px`,
-                            }}
-                          >
-                            {thumbUrl && (
-                              <BetterImg
-                                src={thumbUrl}
-                                className="w-full h-full object-cover"
-                              />
-                            )}
-                            {!thumbUrl && isFolder && (
-                              <div className="w-full h-full grid place-items-center bg-gradient-to-b from-[color:var(--tc-mpf-surface-2)] to-[color:var(--tc-mpf-surface)]">
-                                <FolderIcon className="size-7 opacity-70" />
-                              </div>
-                            )}
-                            {!thumbUrl && !isFolder && (
-                              <div className="w-full h-full grid place-items-center bg-gradient-to-b from-[color:var(--tc-mpf-surface-2)] to-[color:var(--tc-mpf-surface)]">
-                                <FileImageIcon className="size-7 opacity-70" />
-                              </div>
-                            )}
-                            {!thumbUrl && !isFolder && unuploadedHint && (
+                            const rect = (
+                              e.currentTarget as HTMLElement
+                            ).getBoundingClientRect();
+                            const intent = computeMpfDropIntent({
+                              viewMode: "list",
+                              targetKind: node.type,
+                              targetRect: rect,
+                              clientX: e.clientX,
+                              clientY: e.clientY,
+                            });
+                            if (intent === "none") {
+                              if (
+                                mpfReorderDropTarget?.key === key ||
+                                mpfMoveIntoDropTargetKey === key
+                              ) {
+                                clearMpfDropTargets();
+                              }
+                              return;
+                            }
+                            if (intent === "moveInto") {
+                              if (node.type !== "folder") return;
+                              if (
+                                source.kind === "folder" &&
+                                source.name === name
+                              )
+                                return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.dataTransfer.dropEffect = "move";
+                              setMpfMoveIntoDropTargetKey(key);
+                              setMpfReorderDropTarget(null);
+                              return;
+                            }
+
+                            if (
+                              source.kind === node.type &&
+                              source.name === name
+                            )
+                              return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = "move";
+                            setMpfReorderDropTarget({
+                              key,
+                              placement:
+                                intent === "reorderAfter" ? "after" : "before",
+                            });
+                            setMpfMoveIntoDropTargetKey(null);
+                          }}
+                          onDragLeave={(e) => {
+                            const related =
+                              e.relatedTarget as HTMLElement | null;
+                            if (
+                              related &&
+                              (e.currentTarget as HTMLElement).contains(related)
+                            )
+                              return;
+                            if (mpfReorderDropTarget?.key === key) {
+                              setMpfReorderDropTarget(null);
+                            }
+                            if (mpfMoveIntoDropTargetKey === key) {
+                              setMpfMoveIntoDropTargetKey(null);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            const source = getMpfNodeDragData(e.dataTransfer);
+                            if (!source) return;
+                            if (
+                              Number(source.packageId) !==
+                              Number(selectedPackageId)
+                            )
+                              return;
+                            if (!folderPathEqual(source.folderPath, folderPath))
+                              return;
+                            const intentFromState =
+                              mpfMoveIntoDropTargetKey === key
+                                ? ("moveInto" as const)
+                                : mpfReorderDropTarget?.key === key
+                                  ? mpfReorderDropTarget.placement === "after"
+                                    ? ("reorderAfter" as const)
+                                    : ("reorderBefore" as const)
+                                  : null;
+                            const rect = (
+                              e.currentTarget as HTMLElement
+                            ).getBoundingClientRect();
+                            const intent =
+                              intentFromState ??
+                              computeMpfDropIntent({
+                                viewMode: "list",
+                                targetKind: node.type,
+                                targetRect: rect,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                              });
+                            if (intent === "none") return;
+                            if (intent === "moveInto" && node.type !== "folder")
+                              return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            clearMpfDropTargets();
+                            activeMpfNodeDrag = null;
+                            void applyPreviewNodeDropSafely({
+                              source,
+                              target: { kind: node.type, name },
+                              intent,
+                            });
+                          }}
+                          onDragEnd={() => {
+                            clearMpfDropTargets();
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setSelectedItem({ type: node.type, name });
+                            if (isInlineClickTarget(e.target)) {
+                              lastClickRef.current = null;
+                              return;
+                            }
+                            const nowMs = Date.now();
+                            const prev = lastClickRef.current;
+                            lastClickRef.current = { key, timeMs: nowMs };
+                            if (
+                              !prev ||
+                              prev.key !== key ||
+                              nowMs - prev.timeMs > 350
+                            )
+                              return;
+                            lastClickRef.current = null;
+                            if (isFolder) {
+                              setFolderPath((prevPath) => [...prevPath, name]);
+                              setSelectedItem(null);
+                            }
+                          }}
+                        >
+                          {isReorderTarget && reorderPlacement === "before" && (
+                            <div className="pointer-events-none absolute left-3 right-3 top-0 h-[2px] bg-[color:var(--tc-mpf-accent)] rounded" />
+                          )}
+                          {isReorderTarget && reorderPlacement === "after" && (
+                            <div className="pointer-events-none absolute left-3 right-3 bottom-0 h-[2px] bg-[color:var(--tc-mpf-accent)] rounded" />
+                          )}
+                          <div className="flex items-center gap-3 min-w-0">
+                            {!compactList && (
                               <div
-                                className="absolute bottom-1 left-1 right-1 text-center text-[10px] px-1 py-0.5 rounded border border-[color:var(--tc-mpf-item-border)] bg-[color:var(--tc-mpf-surface-2)] text-[color:var(--tc-mpf-text)]/80 backdrop-blur-sm truncate"
-                                title={unuploadedHint}
+                                className="rounded-sm overflow-hidden border border-[color:var(--tc-mpf-item-border)] bg-[color:var(--tc-mpf-surface-2)] shrink-0 relative"
+                                style={{
+                                  width: `${listThumbBox.w}px`,
+                                  height: `${listThumbBox.h}px`,
+                                }}
                               >
-                                {unuploadedHint}
+                                {thumbUrl && (
+                                  <BetterImg
+                                    src={thumbUrl}
+                                    className="w-full h-full object-cover"
+                                  />
+                                )}
+                                {!thumbUrl && isFolder && (
+                                  <div className="w-full h-full grid place-items-center bg-gradient-to-b from-[color:var(--tc-mpf-surface-2)] to-[color:var(--tc-mpf-surface)]">
+                                    <FolderIcon className="size-7 opacity-70" />
+                                  </div>
+                                )}
+                                {!thumbUrl && !isFolder && (
+                                  <div className="w-full h-full grid place-items-center bg-gradient-to-b from-[color:var(--tc-mpf-surface-2)] to-[color:var(--tc-mpf-surface)]">
+                                    <FileImageIcon className="size-7 opacity-70" />
+                                  </div>
+                                )}
+                                {!thumbUrl && !isFolder && unuploadedHint && (
+                                  <div
+                                    className="absolute bottom-1 left-1 right-1 text-center text-[10px] px-1 py-0.5 rounded border border-[color:var(--tc-mpf-item-border)] bg-[color:var(--tc-mpf-surface-2)] text-[color:var(--tc-mpf-text)]/80 backdrop-blur-sm truncate"
+                                    title={unuploadedHint}
+                                  >
+                                    {unuploadedHint}
+                                  </div>
+                                )}
                               </div>
                             )}
-                          </div>
-                        )}
-                        {compactList && (
-                          <span
-                            className={`inline-block size-2 rounded-none border border-[color:var(--tc-mpf-dot-border)] shrink-0 ${isFolder ? "bg-[color:var(--tc-mpf-dot-folder)]" : "bg-[color:var(--tc-mpf-dot-file)]"}`}
-                          />
-                        )}
-                        <div className="min-w-0">
-                          {inlineEdit &&
-                          inlineEdit.field === "name" &&
-                          inlineEdit.type === node.type &&
-                          inlineEdit.name === name ? (
-                            <div data-mpf-inline="1">
-                              <input
-                                ref={inlineEditRef}
-                                value={inlineEdit.value}
-                                onChange={(e) =>
-                                  setInlineEdit((prev) =>
-                                    prev
-                                      ? { ...prev, value: e.target.value }
-                                      : prev,
-                                  )
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    cancelInlineEdit();
-                                  }
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    const from = inlineEdit.name;
-                                    const to = inlineEdit.value;
-                                    cancelInlineEdit();
-                                    void commitInlineRename({
-                                      type: node.type,
-                                      from,
-                                      to,
-                                    });
-                                  }
-                                }}
-                                onBlur={() => {
-                                  const from = inlineEdit.name;
-                                  const to = inlineEdit.value;
-                                  cancelInlineEdit();
-                                  void commitInlineRename({
-                                    type: node.type,
-                                    from,
-                                    to,
-                                  });
-                                }}
-                                className="w-full h-7 rounded-none border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-input-bg)] px-2 text-[12px] font-medium text-[color:var(--tc-mpf-text)] focus:outline-none focus:border-[color:var(--tc-mpf-accent)]"
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onClick={(e) => e.stopPropagation()}
+                            {compactList && (
+                              <span
+                                className={`inline-block size-2 rounded-none border border-[color:var(--tc-mpf-dot-border)] shrink-0 ${isFolder ? "bg-[color:var(--tc-mpf-dot-folder)]" : "bg-[color:var(--tc-mpf-dot-file)]"}`}
                               />
+                            )}
+                            <div className="min-w-0">
+                              {inlineEdit &&
+                              inlineEdit.field === "name" &&
+                              inlineEdit.type === node.type &&
+                              inlineEdit.name === name ? (
+                                <div data-mpf-inline="1">
+                                  <input
+                                    ref={inlineEditRef}
+                                    value={inlineEdit.value}
+                                    onChange={(e) =>
+                                      setInlineEdit((prev) =>
+                                        prev
+                                          ? { ...prev, value: e.target.value }
+                                          : prev,
+                                      )
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        cancelInlineEdit();
+                                      }
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        const from = inlineEdit.name;
+                                        const to = inlineEdit.value;
+                                        cancelInlineEdit();
+                                        void commitInlineRename({
+                                          type: node.type,
+                                          from,
+                                          to,
+                                        });
+                                      }
+                                    }}
+                                    onBlur={() => {
+                                      const from = inlineEdit.name;
+                                      const to = inlineEdit.value;
+                                      cancelInlineEdit();
+                                      void commitInlineRename({
+                                        type: node.type,
+                                        from,
+                                        to,
+                                      });
+                                    }}
+                                    className="w-full h-7 rounded-none border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-input-bg)] px-2 text-[12px] font-medium text-[color:var(--tc-mpf-text)] focus:outline-none focus:border-[color:var(--tc-mpf-accent)]"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              ) : (
+                                <div
+                                  data-mpf-inline="1"
+                                  className="whitespace-nowrap text-[color:var(--tc-mpf-text)] font-medium"
+                                  title={name}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setSelectedItem({ type: node.type, name });
+                                    if (inlineEdit) return;
+                                    if (node.type !== "material") return;
+                                    if (
+                                      !detectInlineDoubleClick(
+                                        `name:${node.type}:${name}`,
+                                      )
+                                    )
+                                      return;
+                                    startInlineRename(node);
+                                  }}
+                                  onDoubleClick={(e) => {
+                                    e.preventDefault();
+                                    startInlineRename(node);
+                                  }}
+                                >
+                                  {name}
+                                </div>
+                              )}
+                              {!compactList && (
+                                <div
+                                  className="mt-0.5 flex flex-wrap gap-1 min-h-[18px]"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => {
+                                    if (isFolder) return;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openAnnoEditor(
+                                      e.currentTarget as HTMLElement,
+                                      node,
+                                    );
+                                  }}
+                                  title={isFolder ? "" : "点击编辑标签"}
+                                >
+                                  {isFolder && (
+                                    <span className="text-[11px] text-[color:var(--tc-mpf-muted)]">
+                                      包含 {folderCountText}
+                                    </span>
+                                  )}
+                                  {!isFolder &&
+                                    displayChips.map((tag) => (
+                                      <span
+                                        key={tag}
+                                        className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-text)] opacity-95"
+                                        title={tag}
+                                      >
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  {!isFolder && moreCount > 0 && (
+                                    <span
+                                      className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-muted)]"
+                                      title={annotations.join(" / ")}
+                                    >
+                                      +{moreCount}
+                                    </span>
+                                  )}
+                                  {!isFolder && annotations.length === 0 && (
+                                    <span className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-muted)]">
+                                      {baseType}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          ) : (
+                          </div>
+                          {!compactList && (
                             <div
-                              data-mpf-inline="1"
-                              className="truncate text-[color:var(--tc-mpf-text)] font-medium"
-                              title={name}
+                              className="whitespace-nowrap text-[color:var(--tc-mpf-muted)]"
+                              data-mpf-inline={isFolder ? undefined : "1"}
+                              title={isFolder ? "" : (node.note ?? "").trim()}
                               onClick={(e) => {
+                                if (isFolder) return;
                                 e.preventDefault();
                                 e.stopPropagation();
                                 setSelectedItem({ type: node.type, name });
                                 if (inlineEdit) return;
                                 if (node.type !== "material") return;
-                                if (
-                                  !detectInlineDoubleClick(
-                                    `name:${node.type}:${name}`,
-                                  )
-                                )
+                                if (!detectInlineDoubleClick(`note:${name}`))
                                   return;
-                                startInlineRename(node);
+                                startInlineNoteEdit(node);
                               }}
                               onDoubleClick={(e) => {
-                                e.preventDefault();
-                                startInlineRename(node);
-                              }}
-                            >
-                              {name}
-                            </div>
-                          )}
-                          {!compactList && (
-                            <div
-                              className="mt-0.5 flex flex-wrap gap-1 min-h-[18px]"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
                                 if (isFolder) return;
                                 e.preventDefault();
-                                e.stopPropagation();
-                                openAnnoEditor(
-                                  e.currentTarget as HTMLElement,
-                                  node,
-                                );
+                                startInlineNoteEdit(node);
                               }}
-                              title={isFolder ? "" : "点击编辑标签"}
                             >
-                              {isFolder && (
-                                <span className="text-[11px] text-[color:var(--tc-mpf-muted)]">
-                                  包含 {folderCountText}
-                                </span>
-                              )}
-                              {!isFolder &&
-                                displayChips.map((tag) => (
-                                  <span
-                                    key={tag}
-                                    className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-text)] opacity-95"
-                                    title={tag}
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                              {!isFolder && moreCount > 0 && (
-                                <span
-                                  className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-muted)]"
-                                  title={annotations.join(" / ")}
-                                >
-                                  +{moreCount}
-                                </span>
-                              )}
-                              {!isFolder && annotations.length === 0 && (
-                                <span className="inline-flex items-center rounded-sm border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-surface-2)] px-1.5 py-[1px] text-[11px] text-[color:var(--tc-mpf-muted)]">
-                                  {baseType}
-                                </span>
+                              {isFolder ? (
+                                ""
+                              ) : inlineEdit &&
+                                inlineEdit.field === "note" &&
+                                inlineEdit.type === "material" &&
+                                inlineEdit.name === name ? (
+                                <input
+                                  ref={inlineEditRef}
+                                  value={inlineEdit.value}
+                                  onChange={(e) =>
+                                    setInlineEdit((prev) =>
+                                      prev
+                                        ? { ...prev, value: e.target.value }
+                                        : prev,
+                                    )
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      cancelInlineEdit();
+                                    }
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      const materialName = inlineEdit.name;
+                                      const note = inlineEdit.value;
+                                      cancelInlineEdit();
+                                      void commitInlineNote({
+                                        materialName,
+                                        note,
+                                      });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    const materialName = inlineEdit.name;
+                                    const note = inlineEdit.value;
+                                    cancelInlineEdit();
+                                    void commitInlineNote({
+                                      materialName,
+                                      note,
+                                    });
+                                  }}
+                                  className="w-full h-7 rounded-none border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-input-bg)] px-2 text-[12px] text-[color:var(--tc-mpf-text)] focus:outline-none focus:border-[color:var(--tc-mpf-accent)]"
+                                  placeholder="添加备注…"
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (node.note ?? "").trim() ? (
+                                (node.note ?? "").trim()
+                              ) : (
+                                "（无备注）"
                               )}
                             </div>
                           )}
+                          <div className="text-right text-[color:var(--tc-mpf-muted)]">
+                            {baseType}
+                          </div>
                         </div>
-                      </div>
-                      {!compactList && (
-                        <div
-                          className="truncate text-[color:var(--tc-mpf-muted)]"
-                          data-mpf-inline={isFolder ? undefined : "1"}
-                          title={isFolder ? "" : (node.note ?? "").trim()}
-                          onClick={(e) => {
-                            if (isFolder) return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setSelectedItem({ type: node.type, name });
-                            if (inlineEdit) return;
-                            if (node.type !== "material") return;
-                            if (!detectInlineDoubleClick(`note:${name}`))
-                              return;
-                            startInlineNoteEdit(node);
-                          }}
-                          onDoubleClick={(e) => {
-                            if (isFolder) return;
-                            e.preventDefault();
-                            startInlineNoteEdit(node);
-                          }}
-                        >
-                          {isFolder ? (
-                            ""
-                          ) : inlineEdit &&
-                            inlineEdit.field === "note" &&
-                            inlineEdit.type === "material" &&
-                            inlineEdit.name === name ? (
-                            <input
-                              ref={inlineEditRef}
-                              value={inlineEdit.value}
-                              onChange={(e) =>
-                                setInlineEdit((prev) =>
-                                  prev
-                                    ? { ...prev, value: e.target.value }
-                                    : prev,
-                                )
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Escape") {
-                                  e.preventDefault();
-                                  cancelInlineEdit();
-                                }
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  const materialName = inlineEdit.name;
-                                  const note = inlineEdit.value;
-                                  cancelInlineEdit();
-                                  void commitInlineNote({ materialName, note });
-                                }
-                              }}
-                              onBlur={() => {
-                                const materialName = inlineEdit.name;
-                                const note = inlineEdit.value;
-                                cancelInlineEdit();
-                                void commitInlineNote({ materialName, note });
-                              }}
-                              className="w-full h-7 rounded-none border border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-input-bg)] px-2 text-[12px] text-[color:var(--tc-mpf-text)] focus:outline-none focus:border-[color:var(--tc-mpf-accent)]"
-                              placeholder="添加备注…"
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (node.note ?? "").trim() ? (
-                            (node.note ?? "").trim()
-                          ) : (
-                            "（无备注）"
-                          )}
-                        </div>
-                      )}
-                      <div className="text-right text-[color:var(--tc-mpf-muted)]">
-                        {baseType}
-                      </div>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {content && viewMode === "list" && (
+        <div
+          className="shrink-0 border-t border-[color:var(--tc-mpf-border)] bg-[color:var(--tc-mpf-bg)]"
+          style={{ display: listHScroll.max > 0 ? "block" : "none" }}
+        >
+          <div
+            ref={listBarHScrollRef}
+            className="overflow-x-auto overflow-y-hidden h-4"
+            aria-label="横向滚动条"
+          >
+            <div
+              style={{
+                width: `${Math.max(0, listHScroll.width)}px`,
+                height: 1,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Footer (prototype: size slider) */}
       <div
