@@ -91,6 +91,7 @@ import {
   setMaterialPreviewDragData,
   getMaterialPreviewDragOrigin,
   setMaterialPreviewDragOrigin,
+  isMpfNodeDrag,
 } from "@/components/chat/materialPackage/materialPackageDnd";
 
 interface MaterialPackageNavPanelProps {
@@ -3963,6 +3964,10 @@ export default function MaterialPackageNavPanel({
           clearDockHint();
           return;
         }
+        if (isMpfNodeDrag(e.dataTransfer)) {
+          clearDockHint();
+          return;
+        }
         e.preventDefault();
         if (!isMaterialPreviewDrag(e.dataTransfer)) return;
         const origin = getMaterialPreviewDragOrigin(e.dataTransfer) ?? "tree";
@@ -3984,6 +3989,10 @@ export default function MaterialPackageNavPanel({
       }}
       onDropCapture={(e) => {
         if (isMaterialPackageReorderDrag(e.dataTransfer)) return;
+        if (isMpfNodeDrag(e.dataTransfer)) {
+          clearDockHint();
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         const payload = getMaterialPreviewDragData(e.dataTransfer);

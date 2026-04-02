@@ -25,6 +25,7 @@ import {
   getMaterialPreviewDragData,
   getMaterialPreviewDragOrigin,
   isMaterialPreviewDrag,
+  isMpfNodeDrag,
   setMaterialPreviewDragData,
   setMaterialPreviewDragOrigin,
 } from "@/components/chat/materialPackage/materialPackageDnd";
@@ -3667,6 +3668,10 @@ export function SpaceMaterialLibraryCategory({
           clearDockHint();
           return;
         }
+        if (isMpfNodeDrag(e.dataTransfer)) {
+          clearDockHint();
+          return;
+        }
         if (!isMaterialPreviewDrag(e.dataTransfer)) return;
         e.preventDefault();
         const origin = getMaterialPreviewDragOrigin(e.dataTransfer) ?? "tree";
@@ -3688,6 +3693,10 @@ export function SpaceMaterialLibraryCategory({
       }}
       onDropCapture={(e) => {
         if (isSpaceMaterialMoveDrag(e.dataTransfer)) return;
+        if (isMpfNodeDrag(e.dataTransfer)) {
+          clearDockHint();
+          return;
+        }
         if (!isMaterialPreviewDrag(e.dataTransfer)) return;
         e.preventDefault();
         e.stopPropagation();

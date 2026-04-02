@@ -481,3 +481,45 @@ export function isMaterialPreviewDrag(dataTransfer: DataTransfer | null) {
 
   return Boolean(activeMaterialPreviewDrag);
 }
+
+export function isMpfNodeDrag(dataTransfer: DataTransfer | null) {
+  if (!dataTransfer) return false;
+
+  // Prefer checking the custom MIME type if available.
+  try {
+    const types = Array.from(dataTransfer.types || []);
+    if (types.includes("application/x-tc-mpf-node")) return true;
+  } catch {
+    // ignore
+  }
+
+  // Fallback: MPF writes a stable prefix into common text channels.
+  const prefix = "tc-mpf-node:";
+  try {
+    const raw = (dataTransfer.getData("text/plain") || "").trim();
+    if (raw.startsWith(prefix)) return true;
+  } catch {
+    // ignore
+  }
+
+  try {
+    const uriList = (dataTransfer.getData("text/uri-list") || "").trim();
+    const first =
+      uriList
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find(Boolean) || "";
+    if (first.startsWith(prefix)) return true;
+  } catch {
+    // ignore
+  }
+
+  try {
+    const raw = (dataTransfer.getData("text/html") || "").trim();
+    if (raw.startsWith(prefix)) return true;
+  } catch {
+    // ignore
+  }
+
+  return false;
+}

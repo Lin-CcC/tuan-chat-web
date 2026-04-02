@@ -1500,7 +1500,33 @@ export default function MaterialPreviewFloat({
     async (nextContent: MaterialPackageContent) => {
       if (!materialPackage) return;
       if (useBackend) {
+        const now = nowIso();
         if (scope === "space") {
+          // Optimistic cache patch: show reorder/move immediately.
+          queryClient.setQueryData(detailQueryKey, (prev) => {
+            if (!prev || typeof prev !== "object") {
+              return {
+                spacePackageId: selectedPackageId,
+                content: nextContent,
+                updateTime: now,
+              } as any;
+            }
+            return { ...(prev as any), content: nextContent, updateTime: now };
+          });
+          queryClient.setQueryData(listQueryKey, (prev) => {
+            if (!Array.isArray(prev)) return prev;
+            const list = prev as SpaceMaterialPackageRecord[];
+            return list.map((p) =>
+              Number(p.spacePackageId) === Number(selectedPackageId)
+                ? ({
+                    ...p,
+                    content: nextContent,
+                    updateTime: now,
+                  } as SpaceMaterialPackageRecord)
+                : p,
+            );
+          });
+
           const updated = await updateSpaceMaterialPackage({
             spacePackageId: selectedPackageId,
             content: nextContent,
@@ -1535,6 +1561,31 @@ export default function MaterialPreviewFloat({
           return;
         }
 
+        // Optimistic cache patch: show reorder/move immediately.
+        queryClient.setQueryData(detailQueryKey, (prev) => {
+          if (!prev || typeof prev !== "object") {
+            return {
+              packageId: selectedPackageId,
+              content: nextContent,
+              updateTime: now,
+            } as any;
+          }
+          return { ...(prev as any), content: nextContent, updateTime: now };
+        });
+        queryClient.setQueryData(listQueryKey, (prev) => {
+          if (!Array.isArray(prev)) return prev;
+          const list = prev as MaterialPackageRecord[];
+          return list.map((p) =>
+            Number(p.packageId) === Number(selectedPackageId)
+              ? ({
+                  ...p,
+                  content: nextContent,
+                  updateTime: now,
+                } as MaterialPackageRecord)
+              : p,
+          );
+        });
+
         const updated = await updateMaterialPackage({
           packageId: selectedPackageId,
           content: nextContent,
@@ -1560,7 +1611,7 @@ export default function MaterialPreviewFloat({
       saveMockRecord({
         ...materialPackage,
         content: nextContent,
-        updateTime: new Date().toISOString(),
+        updateTime: nowIso(),
       });
     },
     [
@@ -3000,17 +3051,29 @@ export default function MaterialPreviewFloat({
                         return;
                       if (!folderPathEqual(source.folderPath, folderPath))
                         return;
+                      const intentFromState =
+                        mpfMoveIntoDropTargetKey === key
+                          ? ("moveInto" as const)
+                          : mpfReorderDropTarget?.key === key
+                            ? mpfReorderDropTarget.placement === "after"
+                              ? ("reorderAfter" as const)
+                              : ("reorderBefore" as const)
+                            : null;
                       const rect = (
                         e.currentTarget as HTMLElement
                       ).getBoundingClientRect();
-                      const intent = computeMpfDropIntent({
-                        viewMode: "icon",
-                        targetKind: node.type,
-                        targetRect: rect,
-                        clientX: e.clientX,
-                        clientY: e.clientY,
-                      });
+                      const intent =
+                        intentFromState ??
+                        computeMpfDropIntent({
+                          viewMode: "icon",
+                          targetKind: node.type,
+                          targetRect: rect,
+                          clientX: e.clientX,
+                          clientY: e.clientY,
+                        });
                       if (intent === "none") return;
+                      if (intent === "moveInto" && node.type !== "folder")
+                        return;
                       e.preventDefault();
                       e.stopPropagation();
                       clearMpfDropTargets();
@@ -3452,17 +3515,29 @@ export default function MaterialPreviewFloat({
                           return;
                         if (!folderPathEqual(source.folderPath, folderPath))
                           return;
+                        const intentFromState =
+                          mpfMoveIntoDropTargetKey === key
+                            ? ("moveInto" as const)
+                            : mpfReorderDropTarget?.key === key
+                              ? mpfReorderDropTarget.placement === "after"
+                                ? ("reorderAfter" as const)
+                                : ("reorderBefore" as const)
+                              : null;
                         const rect = (
                           e.currentTarget as HTMLElement
                         ).getBoundingClientRect();
-                        const intent = computeMpfDropIntent({
-                          viewMode: "list",
-                          targetKind: node.type,
-                          targetRect: rect,
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                        });
+                        const intent =
+                          intentFromState ??
+                          computeMpfDropIntent({
+                            viewMode: "list",
+                            targetKind: node.type,
+                            targetRect: rect,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                          });
                         if (intent === "none") return;
+                        if (intent === "moveInto" && node.type !== "folder")
+                          return;
                         e.preventDefault();
                         e.stopPropagation();
                         clearMpfDropTargets();
