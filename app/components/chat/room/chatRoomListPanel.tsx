@@ -16,6 +16,8 @@ import useRoomSidebarNormalizer from "@/components/chat/room/useRoomSidebarNorma
 import useRoomSidebarTreeActions from "@/components/chat/room/useRoomSidebarTreeActions";
 import useRoomSidebarTreeState from "@/components/chat/room/useRoomSidebarTreeState";
 import SpaceHeaderBar from "@/components/chat/space/spaceHeaderBar";
+import { SpaceMaterialLibraryCategory } from "@/components/chat/materialPackage/spaceMaterialLibraryPanel";
+import MaterialSendConfirmDialog from "@/components/chat/materialPackage/materialSendConfirmDialog";
 import { useDocHeaderOverrideStore } from "@/components/chat/stores/docHeaderOverrideStore";
 import LeftChatList from "@/components/privateChat/LeftChatList";
 import { collectExistingDocIds, collectExistingRoomIds } from "./sidebarTree";
@@ -300,50 +302,67 @@ export default function ChatRoomListPanel({
                 onDropCapture={handleDocCopyDropCapture}
               >
                 {treeToRender.categories.map((cat, categoryIndex) => (
-                  <RoomSidebarCategory
-                    key={cat.categoryId}
-                    category={cat}
-                    categoryIndex={categoryIndex}
-                    canEdit={canEdit}
-                    isSpaceOwner={isSpaceOwner}
-                    expandedByCategoryId={expandedByCategoryId}
-                    addPanelCategoryId={addPanelCategoryId}
-                    setAddPanelCategoryId={setAddPanelCategoryId}
-                    docCopyDropCategoryId={docCopyDropCategoryId}
-                    handleDocCopyCategoryDragOver={handleDocCopyCategoryDragOver}
-                    handleDocCopyCategoryDragLeave={handleDocCopyCategoryDragLeave}
-                    handleDocCopyCategoryDrop={handleDocCopyCategoryDrop}
-                    dragging={dragging}
-                    dropTarget={dropTarget}
-                    resetDropHandled={resetDropHandled}
-                    setDragging={setDragging}
-                    setDropTarget={setDropTarget}
-                    handleDrop={handleDrop}
-                    toggleCategoryExpanded={toggleCategoryExpanded}
-                    onOpenCreateInCategory={onOpenCreateInCategory}
-                    setContextMenu={setContextMenu}
-                    onContextMenu={onContextMenu}
-                    docHeaderOverrides={docHeaderOverrides}
-                    docMetaMap={docMetaMap}
-                    roomById={roomById}
-                    activeSpaceId={activeSpaceId}
-                    activeRoomId={activeRoomId}
-                    activeDocId={activeDocId}
-                    unreadMessagesNumber={unreadMessagesNumber}
-                    onSelectRoom={onSelectRoom}
-                    onSelectDoc={onSelectDoc}
-                    onCloseLeftDrawer={onCloseLeftDrawer}
-                    existingRoomIdsInTree={existingRoomIdsInTree}
-                    existingDocIdsInTree={existingDocIdsInTree}
-                    pendingAddRoomId={pendingAddRoomId}
-                    setPendingAddRoomId={setPendingAddRoomId}
-                    pendingAddDocId={pendingAddDocId}
-                    setPendingAddDocId={setPendingAddDocId}
-                    addNode={addNode}
-                    fallbackTextRooms={fallbackTextRooms}
-                    visibleDocMetas={visibleDocMetas}
-                  />
+                  <React.Fragment key={cat.categoryId}>
+                    <RoomSidebarCategory
+                      category={cat}
+                      categoryIndex={categoryIndex}
+                      canEdit={canEdit}
+                      isSpaceOwner={isSpaceOwner}
+                      expandedByCategoryId={expandedByCategoryId}
+                      addPanelCategoryId={addPanelCategoryId}
+                      setAddPanelCategoryId={setAddPanelCategoryId}
+                      docCopyDropCategoryId={docCopyDropCategoryId}
+                      handleDocCopyCategoryDragOver={handleDocCopyCategoryDragOver}
+                      handleDocCopyCategoryDragLeave={handleDocCopyCategoryDragLeave}
+                      handleDocCopyCategoryDrop={handleDocCopyCategoryDrop}
+                      dragging={dragging}
+                      dropTarget={dropTarget}
+                      resetDropHandled={resetDropHandled}
+                      setDragging={setDragging}
+                      setDropTarget={setDropTarget}
+                      handleDrop={handleDrop}
+                      toggleCategoryExpanded={toggleCategoryExpanded}
+                      onOpenCreateInCategory={onOpenCreateInCategory}
+                      setContextMenu={setContextMenu}
+                      onContextMenu={onContextMenu}
+                      docHeaderOverrides={docHeaderOverrides}
+                      docMetaMap={docMetaMap}
+                      roomById={roomById}
+                      activeSpaceId={activeSpaceId}
+                      activeRoomId={activeRoomId}
+                      activeDocId={activeDocId}
+                      unreadMessagesNumber={unreadMessagesNumber}
+                      onSelectRoom={onSelectRoom}
+                      onSelectDoc={onSelectDoc}
+                      onCloseLeftDrawer={onCloseLeftDrawer}
+                      existingRoomIdsInTree={existingRoomIdsInTree}
+                      existingDocIdsInTree={existingDocIdsInTree}
+                      pendingAddRoomId={pendingAddRoomId}
+                      setPendingAddRoomId={setPendingAddRoomId}
+                      pendingAddDocId={pendingAddDocId}
+                      setPendingAddDocId={setPendingAddDocId}
+                      addNode={addNode}
+                      fallbackTextRooms={fallbackTextRooms}
+                      visibleDocMetas={visibleDocMetas}
+                    />
+
+                    {activeSpaceId && cat.categoryId === "cat:docs" && (
+                      <SpaceMaterialLibraryCategory
+                        spaceId={activeSpaceId}
+                        spaceName={activeSpaceName}
+                        canEdit={canEdit}
+                      />
+                    )}
+                  </React.Fragment>
                 ))}
+
+                {activeSpaceId && !treeToRender.categories.some(c => c.categoryId === "cat:docs") && (
+                  <SpaceMaterialLibraryCategory
+                    spaceId={activeSpaceId}
+                    spaceName={activeSpaceName}
+                    canEdit={canEdit}
+                  />
+                )}
 
               </div>
 
@@ -380,6 +399,7 @@ export default function ChatRoomListPanel({
               />
             </>
           )}
+      <MaterialSendConfirmDialog />
     </div>
   );
 }
