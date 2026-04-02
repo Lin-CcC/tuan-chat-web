@@ -87,7 +87,7 @@ export type UpdateMaterialPackagePayload = {
   packageId: number;
   name?: string;
   description?: string;
-  coverUrl?: string;
+  coverUrl?: string | null;
   visibility?: MaterialPackageVisibility;
   content?: MaterialPackageContent;
 };
@@ -108,7 +108,7 @@ export type UpdateSpaceMaterialPackagePayload = {
   spacePackageId: number;
   name?: string;
   description?: string;
-  coverUrl?: string;
+  coverUrl?: string | null;
   content?: MaterialPackageContent;
 };
 
@@ -345,4 +345,3 @@ export async function deleteSpaceMaterialPackage(spacePackageId: number, client?
   });
   return unwrapOpenApiResultData(response, "删除局内素材包失败");
 }
-

@@ -1,7 +1,7 @@
 import type { StoredSnapshot } from "@/components/chat/infra/blocksuite/descriptionDocRemote";
 
 import { parseDescriptionDocId } from "@/components/chat/infra/blocksuite/descriptionDocId";
-import { getRemoteSnapshot, getRemoteUpdates } from "@/components/chat/infra/blocksuite/descriptionDocRemote";
+import { getRemoteSnapshot } from "@/components/chat/infra/blocksuite/descriptionDocRemote";
 
 type SharedDocOpenIntentPrewarmState = {
   inflight: Map<string, Promise<void>>;
@@ -37,8 +37,7 @@ function getSharedDocOpenIntentPrewarmState(): SharedDocOpenIntentPrewarmState {
       if (top && top.location?.origin === window.location.origin) {
         owner = top as any;
       }
-    }
-    catch {
+    } catch {
       owner = window as any;
     }
   }
@@ -54,7 +53,9 @@ const sharedDocOpenIntentPrewarmState = getSharedDocOpenIntentPrewarmState();
 const inflight = sharedDocOpenIntentPrewarmState.inflight;
 const lastFinishedAt = sharedDocOpenIntentPrewarmState.lastFinishedAt;
 
-export async function prewarmDescriptionDocOpenIntent(docId: string): Promise<void> {
+export async function prewarmDescriptionDocOpenIntent(
+  docId: string,
+): Promise<void> {
   const remoteKey = parseDescriptionDocId(docId);
   if (!remoteKey) {
     return;
@@ -62,7 +63,10 @@ export async function prewarmDescriptionDocOpenIntent(docId: string): Promise<vo
 
   const cacheKey = `${remoteKey.entityType}:${remoteKey.entityId}:${remoteKey.docType}`;
   const lastFinished = lastFinishedAt.get(cacheKey);
-  if (typeof lastFinished === "number" && Date.now() - lastFinished <= PREWARM_TTL_MS) {
+  if (
+    typeof lastFinished === "number" &&
+    Date.now() - lastFinished <= PREWARM_TTL_MS
+  ) {
     return;
   }
 
@@ -75,21 +79,14 @@ export async function prewarmDescriptionDocOpenIntent(docId: string): Promise<vo
     let snapshot: StoredSnapshot | null = null;
     try {
       snapshot = await getRemoteSnapshot(remoteKey);
-    }
-    catch {
+    } catch {
       snapshot = null;
     }
 
-    try {
-      await getRemoteUpdates({
-        ...remoteKey,
-        afterServerTime: snapshotCursor(snapshot),
-        limit: 2000,
-      });
-    }
-    catch {
-      // Best effort only. Open path will perform the real load.
-    }
+    // NOTE: Prewarm is best-effort only. Some deployments don't support the
+    // incremental updates endpoint and will return 500. Avoid calling it here
+    // to prevent noisy errors; the real open path will perform the load.
+    void snapshotCursor(snapshot);
 
     lastFinishedAt.set(cacheKey, Date.now());
   })();
@@ -97,8 +94,7 @@ export async function prewarmDescriptionDocOpenIntent(docId: string): Promise<vo
   inflight.set(cacheKey, task);
   try {
     await task;
-  }
-  finally {
+  } finally {
     if (inflight.get(cacheKey) === task) {
       inflight.delete(cacheKey);
     }

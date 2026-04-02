@@ -1,6 +1,6 @@
 import type { Space } from "../../../../api";
 
-import { ChatCircleIcon } from "@phosphor-icons/react";
+import { ChatCircleIcon, PackageIcon } from "@phosphor-icons/react";
 import React, { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import SpaceButton from "@/components/chat/shared/components/spaceButton";
@@ -10,6 +10,7 @@ import { AddIcon, CompassIcon, SidebarSimpleIcon } from "@/icons";
 interface ChatSpaceSidebarProps {
   isPrivateChatMode: boolean;
   isDiscoverMode?: boolean;
+  isMaterialPackageMode?: boolean;
   spaces: Space[];
   spaceOrderIds?: number[];
   onReorderSpaceIds?: (nextSpaceIds: number[]) => void;
@@ -27,6 +28,7 @@ interface ChatSpaceSidebarProps {
 export default function ChatSpaceSidebar({
   isPrivateChatMode,
   isDiscoverMode = false,
+  isMaterialPackageMode = false,
   spaces,
   spaceOrderIds,
   onReorderSpaceIds,
@@ -141,6 +143,25 @@ export default function ChatSpaceSidebar({
           </PortalTooltip>
         </div>
 
+        {/* 我的素材包入口 */}
+        <div className="rounded w-10 relative z-20 hover:z-50 mx-2">
+          <div
+            className={`absolute -left-1.5 z-10 top-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-info transition-transform duration-300 ${
+              isMaterialPackageMode ? "scale-y-100" : "scale-y-0"
+            }`}
+          />
+          <PortalTooltip label="我的素材包" placement="right">
+            <Link
+              to="/chat/material-package"
+              className={`w-10 btn btn-square ${isMaterialPackageMode ? "text-info" : ""}`}
+              aria-label="我的素材包"
+              aria-current={isMaterialPackageMode ? "page" : undefined}
+            >
+              <PackageIcon className="size-6" weight="bold" />
+            </Link>
+          </PortalTooltip>
+        </div>
+
         {/* 私信入口 */}
         <div className="rounded w-10 relative z-20 hover:z-50 mx-2">
           <div
@@ -248,11 +269,16 @@ export default function ChatSpaceSidebar({
                 if (isDraggingRef.current) {
                   return;
                 }
+                const sid = space.spaceId ?? -1;
+                if (isDiscoverMode || isMaterialPackageMode) {
+                  onSelectSpace(sid);
+                  return;
+                }
                 if (activeSpaceId !== space.spaceId) {
-                  onSelectSpace(space.spaceId ?? -1);
+                  onSelectSpace(sid);
                 }
               }}
-              isActive={!isDiscoverMode && activeSpaceId === space.spaceId}
+              isActive={!isDiscoverMode && !isMaterialPackageMode && activeSpaceId === space.spaceId}
             >
             </SpaceButton>
           </div>

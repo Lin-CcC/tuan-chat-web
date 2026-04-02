@@ -1,12 +1,30 @@
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { ChatMessageRequest, ChatMessageResponse, Message } from "../../../../api";
+import type {
+  ChatMessageRequest,
+  ChatMessageResponse,
+  Message,
+} from "../../../../api";
 import type { RoomContextType } from "@/components/chat/core/roomContext";
+import type { MaterialPreviewPayload } from "@/components/chat/materialPackage/materialPackageDnd";
+import type {
+  MaterialItemNode,
+  MaterialMessageItem,
+  MaterialNode,
+  MaterialPackageContent,
+} from "@/components/materialPackage/materialPackageApi";
 
 import type { ChatFrameMessageScope } from "@/components/chat/hooks/useChatFrameMessages";
 import { useQueryClient } from "@tanstack/react-query";
 import { tuanchat } from "api/instance";
 import { strToU8, zip } from "fflate";
-import React, { use, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  use,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "react-hot-toast";
 import { useStore } from "zustand";
 // hooks (local)
@@ -32,12 +50,25 @@ import useRoomMessageActions from "@/components/chat/room/useRoomMessageActions"
 import useRoomMessageScroll from "@/components/chat/room/useRoomMessageScroll";
 import useRoomOverlaysController from "@/components/chat/room/useRoomOverlaysController";
 import useRoomRoleState from "@/components/chat/room/useRoomRoleState";
+import {
+  getFolderNodesAtPath,
+  resolveInitialPreviewState,
+} from "@/components/chat/materialPackage/materialPackageTree";
+import { findMockPackageById } from "@/components/chat/materialPackage/materialPackageMockStore";
+import { findSpaceMockPackageById } from "@/components/chat/materialPackage/spaceMaterialMockStore";
 import { useAudioMessageAutoPlayStore } from "@/components/chat/stores/audioMessageAutoPlayStore";
 import { useChatInputUiStore } from "@/components/chat/stores/chatInputUiStore";
 import { useEntityHeaderOverrideStore } from "@/components/chat/stores/entityHeaderOverrideStore";
-import { createRoomUiStore, RoomUiStoreProvider } from "@/components/chat/stores/roomUiStore";
+import {
+  createRoomUiStore,
+  RoomUiStoreProvider,
+} from "@/components/chat/stores/roomUiStore";
 import useCommandExecutor from "@/components/common/dicer/cmdPre";
 import { useGlobalContext } from "@/components/globalContextProvider";
+import {
+  getMaterialPackage,
+  getSpaceMaterialPackage,
+} from "@/components/materialPackage/materialPackageApi";
 
 import { PremiereExporter } from "@/webGAL";
 import {
@@ -47,6 +78,7 @@ import {
   useSendMessageMutation,
   useUpdateMessageMutation,
 } from "../../../../api/hooks/chatQueryHooks";
+import { MessageType } from "../../../../api/wsModels";
 
 function RoomWindow({
   roomId,
@@ -70,7 +102,9 @@ function RoomWindow({
   onOpenThread?: (threadRootMessageId: number) => void;
 }) {
   const spaceContext = use(SpaceContext);
-  const roomUiStoreRef = useRef<ReturnType<typeof createRoomUiStore> | null>(null);
+  const roomUiStoreRef = useRef<ReturnType<typeof createRoomUiStore> | null>(
+    null,
+  );
   if (!roomUiStoreRef.current) {
     roomUiStoreRef.current = createRoomUiStore();
   }
@@ -85,7 +119,9 @@ function RoomWindow({
 
   const space = useGetSpaceInfoQuery(spaceId).data?.data;
   const room = useGetRoomInfoQuery(roomId).data?.data;
-  const roomHeaderOverride = useEntityHeaderOverrideStore(state => state.headers[`room:${roomId}`]);
+  const roomHeaderOverride = useEntityHeaderOverrideStore(
+    (state) => state.headers[`room:${roomId}`],
+  );
 
   const globalContext = useGlobalContext();
   const userId = globalContext.userId;
@@ -114,19 +150,13 @@ function RoomWindow({
     if (messageScope === "thread" && threadRootMessageId) {
       ui.setThreadRootMessageId(threadRootMessageId);
       ui.setComposerTarget("thread");
-    }
-    else {
+    } else {
       ui.setThreadRootMessageId(undefined);
       ui.setComposerTarget("main");
     }
   }, [messageScope, roomId, roomUiStore, threadRootMessageId]);
 
-  const {
-    members,
-    curMember,
-    isSpectator,
-    notMember,
-  } = useRoomMemberState({
+  const { members, curMember, isSpectator, notMember } = useRoomMemberState({
     roomId,
     userId,
     spaceMembers: spaceContext.spaceMembers,
@@ -171,45 +201,63 @@ function RoomWindow({
     isHistoryLoading: chatHistory?.loading,
     virtuosoRef,
   });
-  const sendMessageWithInsertRef = useRef<((message: ChatMessageRequest) => Promise<Message | null>) | null>(null);
-  const sendMessageWithInsertFromRef = useCallback(async (message: ChatMessageRequest) => {
-    if (!sendMessageWithInsertRef.current) {
-      return null;
-    }
-    return await sendMessageWithInsertRef.current(message);
-  }, []);
+  const sendMessageWithInsertRef = useRef<
+    ((message: ChatMessageRequest) => Promise<Message | null>) | null
+  >(null);
+  const sendMessageWithInsertFromRef = useCallback(
+    async (message: ChatMessageRequest) => {
+      if (!sendMessageWithInsertRef.current) {
+        return null;
+      }
+      return await sendMessageWithInsertRef.current(message);
+    },
+    [],
+  );
 
-  const roomContext = React.useMemo((): RoomContextType => ({
-    roomId,
-    roomMembers: members,
-    curMember,
-    roomRolesThatUserOwn,
+  const roomContext = React.useMemo(
+    (): RoomContextType => ({
+      roomId,
+      roomMembers: members,
+      curMember,
+      roomRolesThatUserOwn,
+      curRoleId,
+      curAvatarId,
+      spaceId,
+      chatHistory,
+      scrollToGivenMessage,
+      jumpToMessageInWebGAL: isRealtimeRenderActive
+        ? jumpToMessageInWebGAL
+        : undefined,
+      updateAndRerenderMessageInWebGAL: isRealtimeRenderActive
+        ? updateAndRerenderMessageInWebGAL
+        : undefined,
+      rerenderHistoryInWebGAL: isRealtimeRenderActive
+        ? rerenderHistoryInWebGAL
+        : undefined,
+      sendMessageWithInsert: sendMessageWithInsertFromRef,
+    }),
+    [
+      chatHistory,
+      curAvatarId,
+      curMember,
+      curRoleId,
+      isRealtimeRenderActive,
+      jumpToMessageInWebGAL,
+      members,
+      rerenderHistoryInWebGAL,
+      roomId,
+      roomRolesThatUserOwn,
+      sendMessageWithInsertFromRef,
+      scrollToGivenMessage,
+      spaceId,
+      updateAndRerenderMessageInWebGAL,
+    ],
+  );
+  const commandExecutor = useCommandExecutor(
     curRoleId,
-    curAvatarId,
-    spaceId,
-    chatHistory,
-    scrollToGivenMessage,
-    jumpToMessageInWebGAL: isRealtimeRenderActive ? jumpToMessageInWebGAL : undefined,
-    updateAndRerenderMessageInWebGAL: isRealtimeRenderActive ? updateAndRerenderMessageInWebGAL : undefined,
-    rerenderHistoryInWebGAL: isRealtimeRenderActive ? rerenderHistoryInWebGAL : undefined,
-    sendMessageWithInsert: sendMessageWithInsertFromRef,
-  }), [
-    chatHistory,
-    curAvatarId,
-    curMember,
-    curRoleId,
-    isRealtimeRenderActive,
-    jumpToMessageInWebGAL,
-    members,
-    rerenderHistoryInWebGAL,
-    roomId,
-    roomRolesThatUserOwn,
-    sendMessageWithInsertFromRef,
-    scrollToGivenMessage,
-    spaceId,
-    updateAndRerenderMessageInWebGAL,
-  ]);
-  const commandExecutor = useCommandExecutor(curRoleId, space?.ruleId ?? -1, roomContext);
+    space?.ruleId ?? -1,
+    roomContext,
+  );
 
   const { myStatus: myStatue, handleManualStatusChange } = useChatInputStatus({
     roomId,
@@ -219,7 +267,8 @@ function RoomWindow({
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isApplyingMessageHistory, setIsApplyingMessageHistory] = useState(false);
+  const [isApplyingMessageHistory, setIsApplyingMessageHistory] =
+    useState(false);
   const [isReloadingAllMessages, setIsReloadingAllMessages] = useState(false);
   const noRole = curRoleId <= 0;
 
@@ -236,21 +285,22 @@ function RoomWindow({
     commandExecutor,
   });
 
-  const { sendMessageWithInsert, handleSendWebgalChoose } = useRoomMessageActions({
-    roomId,
-    currentUserId: Number(userId ?? 0),
-    isSpaceOwner: Boolean(spaceContext.isSpaceOwner),
-    curRoleId,
-    isSubmitting,
-    notMember,
-    mainHistoryMessages,
-    sendMessage: sendMessageMutation.mutateAsync,
-    addOrUpdateMessage: chatHistory?.addOrUpdateMessage,
-    removeMessageById: chatHistory?.removeMessageById,
-    replaceMessageById: chatHistory?.replaceMessageById,
-    ensureRuntimeAvatarIdForRole,
-    roomUiStoreApi: roomUiStore,
-  });
+  const { sendMessageWithInsert, handleSendWebgalChoose } =
+    useRoomMessageActions({
+      roomId,
+      currentUserId: Number(userId ?? 0),
+      isSpaceOwner: Boolean(spaceContext.isSpaceOwner),
+      curRoleId,
+      isSubmitting,
+      notMember,
+      mainHistoryMessages,
+      sendMessage: sendMessageMutation.mutateAsync,
+      addOrUpdateMessage: chatHistory?.addOrUpdateMessage,
+      removeMessageById: chatHistory?.removeMessageById,
+      replaceMessageById: chatHistory?.replaceMessageById,
+      ensureRuntimeAvatarIdForRole,
+      roomUiStoreApi: roomUiStore,
+    });
   sendMessageWithInsertRef.current = sendMessageWithInsert;
   const {
     backgroundUrl,
@@ -287,23 +337,247 @@ function RoomWindow({
     setInputText,
     roomUiStoreApi: roomUiStore,
   });
-  const {
-    handleImportChatText,
-    handleSendDocCard,
-    handleSendRoomJump,
-  } = useRoomImportActions({
-    roomId,
-    spaceId,
-    isSpaceOwner: Boolean(spaceContext.isSpaceOwner),
-    curRoleId,
-    notMember,
-    isSubmitting,
-    setIsSubmitting,
-    roomContext,
-    sendMessageWithInsert,
-    ensureRuntimeAvatarIdForRole,
-    roomUiStoreApi: roomUiStore,
-  });
+  const { handleImportChatText, handleSendDocCard, handleSendRoomJump } =
+    useRoomImportActions({
+      roomId,
+      spaceId,
+      isSpaceOwner: Boolean(spaceContext.isSpaceOwner),
+      curRoleId,
+      notMember,
+      isSubmitting,
+      setIsSubmitting,
+      roomContext,
+      sendMessageWithInsert,
+      ensureRuntimeAvatarIdForRole,
+      roomUiStoreApi: roomUiStore,
+    });
+
+  const handleSendMaterial = useCallback(
+    async (payload: MaterialPreviewPayload) => {
+      if (!payload) {
+        return;
+      }
+
+      if (isSubmitting) {
+        toast.error("正在提交中，请稍后");
+        return;
+      }
+
+      if (notMember) {
+        toast.error("观战无法发送素材");
+        return;
+      }
+
+      if (noRole && !spaceContext.isSpaceOwner) {
+        toast.error("旁白仅主持可用，请先选择/拉入你的角色");
+        return;
+      }
+
+      if (
+        payload.scope === "space" &&
+        typeof payload.spaceId === "number" &&
+        payload.spaceId > 0 &&
+        payload.spaceId !== spaceId
+      ) {
+        toast.error("素材所属空间不匹配");
+        return;
+      }
+
+      const pickObject = (value: unknown): Record<string, any> =>
+        value && typeof value === "object"
+          ? (value as Record<string, any>)
+          : {};
+
+      const normalizeMaterialExtra = (
+        messageType: number,
+        rawExtra: unknown,
+      ): Record<string, any> => {
+        const extra = pickObject(rawExtra);
+        switch (messageType) {
+          case MessageType.IMG:
+            return pickObject(extra.imageMessage ?? extra);
+          case MessageType.FILE:
+            return pickObject(extra.fileMessage ?? extra);
+          case MessageType.SOUND:
+            return pickObject(extra.soundMessage ?? extra);
+          case MessageType.VIDEO:
+            return pickObject(extra.videoMessage ?? extra.fileMessage ?? extra);
+          default:
+            return extra;
+        }
+      };
+
+      const collectMaterialMessages = (
+        nodes: MaterialNode[],
+      ): MaterialMessageItem[] => {
+        const result: MaterialMessageItem[] = [];
+
+        const walk = (node: MaterialNode) => {
+          if (!node || typeof node !== "object") return;
+
+          if (node.type === "folder") {
+            const children = Array.isArray(node.children) ? node.children : [];
+            for (const child of children) {
+              walk(child);
+            }
+            return;
+          }
+
+          const list = Array.isArray(node.messages) ? node.messages : [];
+          for (const message of list) {
+            if (message && typeof message === "object") {
+              result.push(message);
+            }
+          }
+        };
+
+        for (const node of nodes) {
+          walk(node);
+        }
+
+        return result;
+      };
+
+      const resolveMaterialMessagesFromContent = (
+        content: MaterialPackageContent | null | undefined,
+        payload: MaterialPreviewPayload,
+      ): MaterialMessageItem[] | null => {
+        if (!content) return null;
+
+        if (payload.kind === "material") {
+          const resolved = resolveInitialPreviewState(payload);
+          const materialName = resolved.selectedMaterialName;
+          if (!materialName) return null;
+          const nodes = getFolderNodesAtPath(content, resolved.folderPath);
+          const found = nodes.find(
+            (n) => n.type === "material" && n.name === materialName,
+          ) as MaterialItemNode | undefined;
+          const messages = found?.messages;
+          return Array.isArray(messages) ? messages : null;
+        }
+
+        const resolved = resolveInitialPreviewState(payload);
+        const nodes =
+          payload.kind === "package"
+            ? Array.isArray(content.root)
+              ? content.root
+              : []
+            : getFolderNodesAtPath(content, resolved.folderPath);
+        const collected = collectMaterialMessages(nodes);
+        return collected.length > 0 ? collected : null;
+      };
+
+      setIsSubmitting(true);
+      try {
+        const scope = payload.scope === "space" ? "space" : "global";
+        const resolvedSpaceId =
+          scope === "space"
+            ? typeof payload.spaceId === "number" && payload.spaceId > 0
+              ? payload.spaceId
+              : spaceId
+            : null;
+
+        const record = await (async () => {
+          try {
+            return scope === "space"
+              ? await getSpaceMaterialPackage(payload.packageId)
+              : await getMaterialPackage(payload.packageId);
+          } catch {
+            if (scope === "space" && resolvedSpaceId) {
+              return findSpaceMockPackageById(
+                resolvedSpaceId,
+                payload.packageId,
+              );
+            }
+            return findMockPackageById(payload.packageId);
+          }
+        })();
+
+        const messages = resolveMaterialMessagesFromContent(
+          record?.content,
+          payload,
+        );
+        if (!messages || messages.length === 0) {
+          toast.error("素材为空或找不到素材内容");
+          return;
+        }
+
+        const { threadRootMessageId: activeThreadRootId, composerTarget } =
+          roomUiStore.getState();
+        const threadId =
+          composerTarget === "thread" && activeThreadRootId
+            ? activeThreadRootId
+            : undefined;
+
+        const avatarCache = new Map<number, number>();
+        const resolveAvatarId = async (roleId: number) => {
+          const cached = avatarCache.get(roleId);
+          if (typeof cached === "number") return cached;
+          const resolved = await ensureRuntimeAvatarIdForRole(roleId);
+          avatarCache.set(roleId, resolved);
+          return resolved;
+        };
+
+        for (const item of messages) {
+          const itemRoleId =
+            typeof item.roleId === "number" && Number.isFinite(item.roleId)
+              ? item.roleId
+              : curRoleId > 0
+                ? curRoleId
+                : undefined;
+
+          let itemAvatarId =
+            typeof item.avatarId === "number" && Number.isFinite(item.avatarId)
+              ? item.avatarId
+              : undefined;
+          if (!itemAvatarId && itemRoleId && itemRoleId > 0) {
+            itemAvatarId = await resolveAvatarId(itemRoleId);
+          }
+
+          const request: ChatMessageRequest = {
+            roomId,
+            ...(threadId ? { threadId } : {}),
+            messageType: item.messageType,
+            ...(itemRoleId !== undefined ? { roleId: itemRoleId } : {}),
+            ...(itemAvatarId !== undefined ? { avatarId: itemAvatarId } : {}),
+            ...(typeof item.content === "string"
+              ? { content: item.content }
+              : {}),
+            ...(Array.isArray(item.annotations)
+              ? { annotations: item.annotations }
+              : {}),
+            ...(item.webgal && typeof item.webgal === "object"
+              ? { webgal: item.webgal }
+              : {}),
+            extra: normalizeMaterialExtra(item.messageType, item.extra),
+          };
+
+          const created = await sendMessageWithInsert(request);
+          if (!created) {
+            throw new Error("发送素材失败");
+          }
+        }
+      } catch (error) {
+        console.error("send material failed", error);
+        toast.error("发送素材失败");
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [
+      curRoleId,
+      ensureRuntimeAvatarIdForRole,
+      isSubmitting,
+      noRole,
+      notMember,
+      roomId,
+      roomUiStore,
+      sendMessageWithInsert,
+      setIsSubmitting,
+      spaceContext.isSpaceOwner,
+      spaceId,
+    ],
+  );
   const {
     isImportChatTextOpen,
     setIsImportChatTextOpen,
@@ -345,9 +619,14 @@ function RoomWindow({
   const undoInProgressRef = useRef(false);
   const redoInProgressRef = useRef(false);
 
-  const syncMessageAfterHistoryApply = useCallback((nextMessage: Message) => {
-    chatHistory?.addOrUpdateMessage({ message: nextMessage } as ChatMessageResponse);
-  }, [chatHistory]);
+  const syncMessageAfterHistoryApply = useCallback(
+    (nextMessage: Message) => {
+      chatHistory?.addOrUpdateMessage({
+        message: nextMessage,
+      } as ChatMessageResponse);
+    },
+    [chatHistory],
+  );
 
   const handleUndoLastMessageAction = useCallback(async () => {
     if (undoInProgressRef.current || redoInProgressRef.current) {
@@ -368,7 +647,9 @@ function RoomWindow({
       if (action.type === "send") {
         const messageId = action.after.messageId;
         const response = await deleteMessageMutation.mutateAsync(messageId);
-        const localTarget = historyMessages?.find(m => m.message.messageId === messageId)?.message;
+        const localTarget = historyMessages?.find(
+          (m) => m.message.messageId === messageId,
+        )?.message;
         const fallbackDeleted = {
           ...(localTarget ?? action.after),
           status: 1,
@@ -391,18 +672,22 @@ function RoomWindow({
       syncMessageAfterHistoryApply(response?.data ?? action.before);
       roomUiStore.getState().restoreMessageRedo(action);
       toast.success("已撤销修改");
-    }
-    catch (error) {
+    } catch (error) {
       console.error("撤销消息操作失败", error);
       roomUiStore.getState().restoreMessageUndo(action);
       toast.error("撤销失败，请稍后重试");
-    }
-    finally {
+    } finally {
       roomUiStore.getState().setApplyingMessageUndo(false);
       setIsApplyingMessageHistory(false);
       undoInProgressRef.current = false;
     }
-  }, [deleteMessageMutation, historyMessages, roomUiStore, syncMessageAfterHistoryApply, updateMessageMutation]);
+  }, [
+    deleteMessageMutation,
+    historyMessages,
+    roomUiStore,
+    syncMessageAfterHistoryApply,
+    updateMessageMutation,
+  ]);
 
   const handleRedoLastMessageAction = useCallback(async () => {
     if (undoInProgressRef.current || redoInProgressRef.current) {
@@ -425,7 +710,9 @@ function RoomWindow({
           ...action.after,
           status: 0,
         });
-        syncMessageAfterHistoryApply(response?.data ?? { ...action.after, status: 0 });
+        syncMessageAfterHistoryApply(
+          response?.data ?? { ...action.after, status: 0 },
+        );
         roomUiStore.getState().restoreMessageUndo(action);
         toast.success("已回退发送");
         return;
@@ -434,7 +721,9 @@ function RoomWindow({
       if (action.type === "delete") {
         const messageId = action.before.messageId;
         const response = await deleteMessageMutation.mutateAsync(messageId);
-        const localTarget = historyMessages?.find(m => m.message.messageId === messageId)?.message;
+        const localTarget = historyMessages?.find(
+          (m) => m.message.messageId === messageId,
+        )?.message;
         const fallbackDeleted = {
           ...(localTarget ?? action.before),
           status: 1,
@@ -449,30 +738,37 @@ function RoomWindow({
       syncMessageAfterHistoryApply(response?.data ?? action.after);
       roomUiStore.getState().restoreMessageUndo(action);
       toast.success("已回退修改");
-    }
-    catch (error) {
+    } catch (error) {
       console.error("回退消息操作失败", error);
       roomUiStore.getState().restoreMessageRedo(action);
       toast.error("回退失败，请稍后重试");
-    }
-    finally {
+    } finally {
       roomUiStore.getState().setApplyingMessageUndo(false);
       setIsApplyingMessageHistory(false);
       redoInProgressRef.current = false;
     }
-  }, [deleteMessageMutation, historyMessages, roomUiStore, syncMessageAfterHistoryApply, updateMessageMutation]);
+  }, [
+    deleteMessageMutation,
+    historyMessages,
+    roomUiStore,
+    syncMessageAfterHistoryApply,
+    updateMessageMutation,
+  ]);
 
   useEffect(() => {
     const handleGlobalUndoKeyDown = (event: KeyboardEvent) => {
-      const isUndoShortcut = (event.ctrlKey || event.metaKey)
-        && !event.shiftKey
-        && event.key.toLowerCase() === "z";
-      const isRedoShortcutByY = (event.ctrlKey || event.metaKey)
-        && !event.shiftKey
-        && event.key.toLowerCase() === "y";
-      const isRedoShortcutByShiftZ = (event.ctrlKey || event.metaKey)
-        && event.shiftKey
-        && event.key.toLowerCase() === "z";
+      const isUndoShortcut =
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "z";
+      const isRedoShortcutByY =
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "y";
+      const isRedoShortcutByShiftZ =
+        (event.ctrlKey || event.metaKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === "z";
       const isRedoShortcut = isRedoShortcutByY || isRedoShortcutByShiftZ;
       if (!isUndoShortcut && !isRedoShortcut) {
         return;
@@ -481,16 +777,20 @@ function RoomWindow({
       const target = event.target as HTMLElement | null;
       if (target) {
         const tagName = target.tagName;
-        const isEditableTarget = target.isContentEditable || tagName === "INPUT" || tagName === "TEXTAREA";
+        const isEditableTarget =
+          target.isContentEditable ||
+          tagName === "INPUT" ||
+          tagName === "TEXTAREA";
         if (isEditableTarget) {
-          if (target.closest("[data-chat-input-scope=\"message-edit\"]")) {
+          if (target.closest('[data-chat-input-scope="message-edit"]')) {
             return;
           }
           if (target.closest(".editable-field")) {
             return;
           }
           const isChatInput = target.classList.contains("chatInputTextarea");
-          const hasInputText = useChatInputUiStore.getState().plainText.trim().length > 0;
+          const hasInputText =
+            useChatInputUiStore.getState().plainText.trim().length > 0;
           if (!isChatInput || hasInputText) {
             return;
           }
@@ -528,23 +828,22 @@ function RoomWindow({
         syncId: 0,
       });
       const fullMessages = Array.isArray(response?.data)
-        ? response.data as ChatMessageResponse[]
+        ? (response.data as ChatMessageResponse[])
         : [];
       if (fullMessages.length > 0) {
         await chatHistory.addOrUpdateMessages(fullMessages);
       }
       roomUiStore.getState().clearMessageUndo();
       roomUiStore.getState().clearMessageRedo();
-      const successText = fullMessages.length > 0
-        ? `已重新拉取 ${fullMessages.length} 条消息`
-        : "已完成重拉，当前房间暂无历史消息";
+      const successText =
+        fullMessages.length > 0
+          ? `已重新拉取 ${fullMessages.length} 条消息`
+          : "已完成重拉，当前房间暂无历史消息";
       toast.success(successText, { id: toastId });
-    }
-    catch (error) {
+    } catch (error) {
       console.error("清空并重拉房间消息失败", error);
       toast.error("清空并重拉失败，请稍后重试", { id: toastId });
-    }
-    finally {
+    } finally {
       setIsReloadingAllMessages(false);
     }
   }, [chatHistory, isReloadingAllMessages, roomId, roomUiStore]);
@@ -562,12 +861,13 @@ function RoomWindow({
     let ttsApiUrl: string | undefined;
 
     // eslint-disable-next-line no-alert
-    const useVoice = window.confirm("是否生成 AI 语音？\n\n[确定] = 生成语音（需配置 API）。\n[取消] = 不生成语音（仅含图片和字幕）。");
+    const useVoice = window.confirm(
+      "是否生成 AI 语音？\n\n[确定] = 生成语音（需配置 API）。\n[取消] = 不生成语音（仅含图片和字幕）。",
+    );
     if (useVoice) {
       // eslint-disable-next-line no-alert
       const key = window.prompt("请输入 TTS API 地址", "http://127.0.0.1:9000");
-      if (key)
-        ttsApiUrl = key;
+      if (key) ttsApiUrl = key;
     }
 
     const loadToastId = toast.loading("正在处理导出...");
@@ -581,8 +881,7 @@ function RoomWindow({
       // 头像获取回调
       const avatarCache = new Map<number, any>();
       const fetchAvatar = async (avatarId: number) => {
-        if (avatarCache.has(avatarId))
-          return avatarCache.get(avatarId);
+        if (avatarCache.has(avatarId)) return avatarCache.get(avatarId);
 
         // 1. 尝试从缓存获取
         const queryKey = ["getRoleAvatar", avatarId];
@@ -601,8 +900,7 @@ function RoomWindow({
             queryClient.setQueryData(queryKey, res);
             return res.data;
           }
-        }
-        catch (e) {
+        } catch (e) {
           console.warn(`Fetch avatar ${avatarId} failed`, e);
         }
         return null;
@@ -614,10 +912,8 @@ function RoomWindow({
       const roleVocalCache = new Map<number, File | undefined>();
 
       const fetchRoleName = async (roleId?: number) => {
-        if (!roleId)
-          return null;
-        if (roleNameCache.has(roleId))
-          return roleNameCache.get(roleId);
+        if (!roleId) return null;
+        if (roleNameCache.has(roleId)) return roleNameCache.get(roleId);
 
         // 尝试从缓存获取
         const queryKey = ["getRole", roleId];
@@ -635,16 +931,14 @@ function RoomWindow({
             queryClient.setQueryData(queryKey, res);
             return res.data.roleName;
           }
-        }
-        catch (e) {
+        } catch (e) {
           console.warn(`Fetch role name ${roleId} failed`, e);
         }
         return null;
       };
 
       const fetchRoleRefVocal = async (roleId: number) => {
-        if (roleVocalCache.has(roleId))
-          return roleVocalCache.get(roleId);
+        if (roleVocalCache.has(roleId)) return roleVocalCache.get(roleId);
 
         try {
           // Get Role Info first
@@ -654,8 +948,7 @@ function RoomWindow({
 
           if (cached?.data) {
             roleData = cached.data;
-          }
-          else {
+          } else {
             const res = await tuanchat.roleController.getRole(roleId);
             if (res.data) {
               roleData = res.data;
@@ -671,8 +964,7 @@ function RoomWindow({
             roleVocalCache.set(roleId, file);
             return file;
           }
-        }
-        catch (e) {
+        } catch (e) {
           console.warn(`Fetch role vocal ${roleId} failed`, e);
         }
         roleVocalCache.set(roleId, undefined);
@@ -682,14 +974,13 @@ function RoomWindow({
       // 用户名获取回调 (Fallback)
       const userNameCache = new Map<number, string>();
       const fetchUserName = async (userId?: number) => {
-        if (!userId)
-          return null;
-        if (userNameCache.has(userId))
-          return userNameCache.get(userId);
+        if (!userId) return null;
+        if (userNameCache.has(userId)) return userNameCache.get(userId);
 
         const queryKey = ["getUser", userId];
         const cached = queryClient.getQueryData<{ data: any }>(queryKey);
-        if (cached?.data?.username) { // UserInfoResponse usually has 'username' or 'name' or 'nickname'
+        if (cached?.data?.username) {
+          // UserInfoResponse usually has 'username' or 'name' or 'nickname'
           const name = cached.data.username;
           userNameCache.set(userId, name);
           return name;
@@ -704,8 +995,7 @@ function RoomWindow({
             queryClient.setQueryData(queryKey, res);
             return name;
           }
-        }
-        catch (e) {
+        } catch (e) {
           console.warn(`Fetch user ${userId} failed`, e);
         }
         return null;
@@ -715,8 +1005,7 @@ function RoomWindow({
       const fetchRole = async (roleId: number) => {
         const queryKey = ["getRole", roleId];
         const cached = queryClient.getQueryData<{ data: any }>(queryKey);
-        if (cached?.data)
-          return cached.data;
+        if (cached?.data) return cached.data;
         try {
           // Reuse existing RoleController API
           const res = await tuanchat.roleController.getRole(roleId);
@@ -724,8 +1013,7 @@ function RoomWindow({
             queryClient.setQueryData(queryKey, res);
             return res.data;
           }
-        }
-        catch {}
+        } catch {}
         return undefined;
       };
 
@@ -751,26 +1039,34 @@ function RoomWindow({
         zipData[`TuanChat_Names_${roomId}.srt`] = strToU8(nameSrtContent);
 
         // Add generated Voice assets
-        for (const [name, data] of Object.entries(exporter.generatedAudioAssets)) {
+        for (const [name, data] of Object.entries(
+          exporter.generatedAudioAssets,
+        )) {
           zipData[`assets/${name}`] = data;
         }
 
         // Add Platform Image Assets (Sprites, Backgrounds)
-        const resources = exporter.getResources().filter(r => r.type === "image" || r.type === "video");
+        const resources = exporter
+          .getResources()
+          .filter((r) => r.type === "image" || r.type === "video");
         if (resources.length > 0) {
-          const fetchResult = await Promise.allSettled(resources.map(async (r) => {
-            try {
-              const res = await fetch(r.url, { mode: "cors" });
-              if (!res.ok)
-                throw new Error(`Fetch ${r.url} failed: ${res.status}`);
-              const blob = await res.blob();
-              return { name: r.name, data: new Uint8Array(await blob.arrayBuffer()) };
-            }
-            catch (e) {
-              console.error(e);
-              return null;
-            }
-          }));
+          const fetchResult = await Promise.allSettled(
+            resources.map(async (r) => {
+              try {
+                const res = await fetch(r.url, { mode: "cors" });
+                if (!res.ok)
+                  throw new Error(`Fetch ${r.url} failed: ${res.status}`);
+                const blob = await res.blob();
+                return {
+                  name: r.name,
+                  data: new Uint8Array(await blob.arrayBuffer()),
+                };
+              } catch (e) {
+                console.error(e);
+                return null;
+              }
+            }),
+          );
 
           for (const item of fetchResult) {
             if (item.status === "fulfilled" && item.value) {
@@ -801,11 +1097,14 @@ function RoomWindow({
           URL.revokeObjectURL(url);
           toast.success("导出成功！", { id: loadToastId });
         });
-      }
-      else {
+      } else {
         // --- XML Only Mode (Legacy) ---
         const xmlContent = exporter.generateXML();
-        const downloadBlob = (content: string, filename: string, type: string) => {
+        const downloadBlob = (
+          content: string,
+          filename: string,
+          type: string,
+        ) => {
           const blob = new Blob([content], { type });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
@@ -817,21 +1116,36 @@ function RoomWindow({
           URL.revokeObjectURL(url);
         };
 
-        downloadBlob(xmlContent, `TuanChat_Export_${roomId}.xml`, "text/xml;charset=utf-8");
+        downloadBlob(
+          xmlContent,
+          `TuanChat_Export_${roomId}.xml`,
+          "text/xml;charset=utf-8",
+        );
 
         const scriptContent = exporter.generateDownloadScript();
-        downloadBlob(scriptContent, `download_assets_${roomId}.ps1`, "text/plain;charset=utf-8");
+        downloadBlob(
+          scriptContent,
+          `download_assets_${roomId}.ps1`,
+          "text/plain;charset=utf-8",
+        );
 
         const srtContent = exporter.generateSRT();
-        downloadBlob(srtContent, `TuanChat_Subtitles_${roomId}.srt`, "text/plain;charset=utf-8");
+        downloadBlob(
+          srtContent,
+          `TuanChat_Subtitles_${roomId}.srt`,
+          "text/plain;charset=utf-8",
+        );
 
         const nameSrtContent = exporter.generateNameSRT();
-        downloadBlob(nameSrtContent, `TuanChat_Names_${roomId}.srt`, "text/plain;charset=utf-8");
+        downloadBlob(
+          nameSrtContent,
+          `TuanChat_Names_${roomId}.srt`,
+          "text/plain;charset=utf-8",
+        );
 
         toast.success("导出成功！请查看下载的文件。", { id: loadToastId });
       }
-    }
-    catch (e) {
+    } catch (e) {
       console.error(e);
       toast.error("导出失败，请检查控制台", { id: loadToastId });
     }
@@ -840,29 +1154,32 @@ function RoomWindow({
   const roomName = roomHeaderOverride?.title ?? room?.name;
   const spaceName = space?.name;
 
-  const chatFrameProps = React.useMemo(() => ({
-    virtuosoRef,
-    onBackgroundUrlChange: setBackgroundUrl,
-    onEffectChange: setCurrentEffect,
-    onExecuteCommandRequest: handleExecuteCommandRequest,
-    onOpenThread,
-    spaceName,
-    roomName,
-    messageScope,
-    threadRootMessageId,
-    sendMessageWithInsert,
-  }), [
-    handleExecuteCommandRequest,
-    onOpenThread,
-    setBackgroundUrl,
-    setCurrentEffect,
-    roomName,
-    spaceName,
-    messageScope,
-    sendMessageWithInsert,
-    threadRootMessageId,
-    virtuosoRef,
-  ]);
+  const chatFrameProps = React.useMemo(
+    () => ({
+      virtuosoRef,
+      onBackgroundUrlChange: setBackgroundUrl,
+      onEffectChange: setCurrentEffect,
+      onExecuteCommandRequest: handleExecuteCommandRequest,
+      onOpenThread,
+      spaceName,
+      roomName,
+      messageScope,
+      threadRootMessageId,
+      sendMessageWithInsert,
+    }),
+    [
+      handleExecuteCommandRequest,
+      onOpenThread,
+      setBackgroundUrl,
+      setCurrentEffect,
+      roomName,
+      spaceName,
+      messageScope,
+      sendMessageWithInsert,
+      threadRootMessageId,
+      virtuosoRef,
+    ],
+  );
 
   const composerPanelProps = {
     roomId,
@@ -902,8 +1219,14 @@ function RoomWindow({
     onCompositionEnd,
   };
 
-  const canUndo = useStore(roomUiStore, state => state.messageUndoStack.length > 0);
-  const canRedo = useStore(roomUiStore, state => state.messageRedoStack.length > 0);
+  const canUndo = useStore(
+    roomUiStore,
+    (state) => state.messageUndoStack.length > 0,
+  );
+  const canRedo = useStore(
+    roomUiStore,
+    (state) => state.messageRedoStack.length > 0,
+  );
 
   return (
     <RoomUiStoreProvider store={roomUiStore}>
@@ -919,7 +1242,11 @@ function RoomWindow({
           chatHistoryLoading={!!chatHistory?.loading}
           onApiChange={handleRealtimeRenderApiChange}
         />
-        <RoomDocRefDropLayer onSendDocCard={handleSendDocCard} onSendRoomJump={handleSendRoomJump}>
+        <RoomDocRefDropLayer
+          onSendDocCard={handleSendDocCard}
+          onSendRoomJump={handleSendRoomJump}
+          onSendMaterial={handleSendMaterial}
+        >
           <RoomWindowLayout
             roomId={roomId}
             roomName={roomName}
@@ -932,7 +1259,9 @@ function RoomWindow({
             composerPanelProps={composerPanelProps}
             hideComposer={viewMode}
             hideSecondaryPanels={hideSecondaryPanels}
-            chatAreaComposerTarget={messageScope === "thread" ? "thread" : "main"}
+            chatAreaComposerTarget={
+              messageScope === "thread" ? "thread" : "main"
+            }
             onExportPremiere={handleExportPremiere}
             onClearAndReloadAllMessages={handleClearAndReloadAllMessages}
             onUndo={handleUndoLastMessageAction}
@@ -952,7 +1281,9 @@ function RoomWindow({
             availableRoles={roomRolesThatUserOwn}
             onImportChatText={handleImportChatItems}
             onOpenRoleAddWindow={openRoleAddWindow}
-            onOpenNpcAddWindow={spaceContext.isSpaceOwner ? openNpcAddWindow : undefined}
+            onOpenNpcAddWindow={
+              spaceContext.isSpaceOwner ? openNpcAddWindow : undefined
+            }
             isRoleHandleOpen={isRoleHandleOpen}
             setIsRoleAddWindowOpen={setIsRoleAddWindowOpen}
             handleAddRole={handleAddRole}
@@ -964,7 +1295,12 @@ function RoomWindow({
           />
         )}
         {isApplyingMessageHistory && (
-          <div className="modal modal-open" role="dialog" aria-modal="true" aria-label="正在处理消息操作">
+          <div
+            className="modal modal-open"
+            role="dialog"
+            aria-modal="true"
+            aria-label="正在处理消息操作"
+          >
             <div className="modal-box max-w-sm text-center">
               <div className="flex items-center justify-center gap-3">
                 <span className="loading loading-spinner loading-md"></span>

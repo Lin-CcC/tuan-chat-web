@@ -49,7 +49,10 @@ export default [
         index("routes/chat.tsx"),
         route(":spaceId/doc/:docId", "routes/chatDoc.tsx"),
         route(":spaceId/:roomId/setting", "routes/chatRoomSetting.tsx"),
-        route(":spaceId/:roomId?/:messageId?", "routes/chatSpace.tsx"),
+        // Avoid optional params here; explicit routes are more reliable.
+        route(":spaceId", "routes/chatSpace.tsx", { id: "chatSpaceBySpace" }),
+        route(":spaceId/:roomId", "routes/chatSpace.tsx", { id: "chatSpaceByRoom" }),
+        route(":spaceId/:roomId/:messageId", "routes/chatSpace.tsx", { id: "chatSpaceByMessage" }),
       ]),
     ]),
     route("settings", "routes/settings.tsx"),

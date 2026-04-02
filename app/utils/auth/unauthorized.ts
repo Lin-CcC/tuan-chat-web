@@ -1,3 +1,5 @@
+import { normalizeAuthRedirectPath } from "./redirect";
+
 export type UnauthorizedSource = "http" | "ws";
 
 const LAST_UNAUTHORIZED_AT_KEY = "tc:auth:lastUnauthorizedAt";
@@ -78,7 +80,7 @@ export function handleUnauthorized(params?: {
   persistToast(toastMessage);
 
   const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  const redirect = params?.redirect ?? currentPath;
+  const redirect = normalizeAuthRedirectPath(params?.redirect ?? currentPath);
 
   const target = redirect
     ? `/login?redirect=${encodeURIComponent(redirect)}`

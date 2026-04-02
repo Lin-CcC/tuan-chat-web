@@ -1,23 +1,30 @@
 import { tuanchat } from "../../../../../api/instance";
 
-export type DescriptionEntityType = "space" | "room" | "user" | "space_user_doc" | "space_doc";
+export type DescriptionEntityType =
+  | "space"
+  | "room"
+  | "user"
+  | "space_user_doc"
+  | "space_doc";
 export type DescriptionDocType = "description" | "readme";
 
-export type StoredSnapshot = {
-  // v1: legacy snapshot format
-  v: 1;
-  updateB64: string;
-  updatedAt: number;
-} | {
-  // v2: snapshot + metadata for yjs incremental log compaction
-  v: 2;
-  updateB64: string;
-  updatedAt: number;
-  /** 可选：快照对应的 serverTime 游标（快照已包含 <= 该时间的 updates） */
-  snapshotServerTime?: number;
-  /** 可选：该快照对应的 stateVector（用于调试/后续优化；客户端仍可自行计算） */
-  stateVectorB64?: string;
-};
+export type StoredSnapshot =
+  | {
+      // v1: legacy snapshot format
+      v: 1;
+      updateB64: string;
+      updatedAt: number;
+    }
+  | {
+      // v2: snapshot + metadata for yjs incremental log compaction
+      v: 2;
+      updateB64: string;
+      updatedAt: number;
+      /** 可选：快照对应的 serverTime 游标（快照已包含 <= 该时间的 updates） */
+      snapshotServerTime?: number;
+      /** 可选：该快照对应的 stateVector（用于调试/后续优化；客户端仍可自行计算） */
+      stateVectorB64?: string;
+    };
 
 type RemoteKey = {
   entityType: DescriptionEntityType;
@@ -33,6 +40,11 @@ type SharedRemoteState = {
   snapshotDeleteInflight: Map<string, Promise<void>>;
   updatesCache: Map<string, { at: number; value: RemoteUpdates | null }>;
   updatesInflight: Map<string, Promise<RemoteUpdates | null>>;
+  /**
+   * Simple circuit-breaker: if remote endpoints consistently 500 in a deployment,
+   * stop hammering them for a short time window (prewarm / sync will retry later).
+   */
+  remoteDisabledUntil: number;
 };
 
 function buildRemoteCacheKey(key: RemoteKey) {
@@ -51,13 +63,20 @@ function buildRemoteUpdatesCacheKey(params: {
 
 function createSharedRemoteState(): SharedRemoteState {
   return {
-    snapshotCache: new Map<string, { at: number; value: StoredSnapshot | null }>(),
+    snapshotCache: new Map<
+      string,
+      { at: number; value: StoredSnapshot | null }
+    >(),
     snapshotInflight: new Map<string, Promise<StoredSnapshot | null>>(),
     snapshotSetInflight: new Map<string, Promise<void>>(),
     snapshotLastSet: new Map<string, { at: number; updateB64: string }>(),
     snapshotDeleteInflight: new Map<string, Promise<void>>(),
-    updatesCache: new Map<string, { at: number; value: RemoteUpdates | null }>(),
+    updatesCache: new Map<
+      string,
+      { at: number; value: RemoteUpdates | null }
+    >(),
     updatesInflight: new Map<string, Promise<RemoteUpdates | null>>(),
+    remoteDisabledUntil: 0,
   };
 }
 
@@ -71,8 +90,7 @@ function getSharedRemoteState(): SharedRemoteState {
       if (top && top.location?.origin === window.location.origin) {
         owner = top as any;
       }
-    }
-    catch {
+    } catch {
       owner = window as any;
     }
   }
@@ -84,6 +102,17 @@ function getSharedRemoteState(): SharedRemoteState {
 }
 
 const sharedRemoteState = getSharedRemoteState();
+
+const REMOTE_DISABLE_MS_ON_FAILURE = 60_000;
+
+function isRemoteTemporarilyDisabled() {
+  return Date.now() < sharedRemoteState.remoteDisabledUntil;
+}
+
+function markRemoteFailure() {
+  sharedRemoteState.remoteDisabledUntil =
+    Date.now() + REMOTE_DISABLE_MS_ON_FAILURE;
+}
 
 // De-dupe back-to-back GETs caused by:
 // - pre-hydration fetch in BlocksuiteDescriptionEditor
@@ -116,31 +145,32 @@ function invalidateRemoteUpdatesCache(baseCacheKey: string) {
 }
 
 function isStoredSnapshot(v: any): v is StoredSnapshot {
-  if (!v || typeof v !== "object")
-    return false;
+  if (!v || typeof v !== "object") return false;
   if (v.v === 1) {
     return typeof v.updateB64 === "string" && typeof v.updatedAt === "number";
   }
   if (v.v === 2) {
-    return typeof v.updateB64 === "string"
-      && typeof v.updatedAt === "number"
-      && (typeof v.snapshotServerTime === "undefined" || typeof v.snapshotServerTime === "number")
-      && (typeof v.stateVectorB64 === "undefined" || typeof v.stateVectorB64 === "string");
+    return (
+      typeof v.updateB64 === "string" &&
+      typeof v.updatedAt === "number" &&
+      (typeof v.snapshotServerTime === "undefined" ||
+        typeof v.snapshotServerTime === "number") &&
+      (typeof v.stateVectorB64 === "undefined" ||
+        typeof v.stateVectorB64 === "string")
+    );
   }
   return false;
 }
 
 function tryParseSnapshot(raw: unknown): StoredSnapshot | null {
-  if (!raw)
-    return null;
+  if (!raw) return null;
 
   // Backend may return snapshot as a JSON string, or already-parsed object.
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
       return isStoredSnapshot(parsed) ? parsed : null;
-    }
-    catch {
+    } catch {
       return null;
     }
   }
@@ -157,6 +187,9 @@ export async function getRemoteSnapshot(params: {
   entityId: number;
   docType: DescriptionDocType;
 }): Promise<StoredSnapshot | null> {
+  if (isRemoteTemporarilyDisabled()) {
+    return null;
+  }
   const cacheKey = buildRemoteCacheKey(params);
   const cached = snapshotCache.get(cacheKey);
   if (cached && Date.now() - cached.at <= SNAPSHOT_CACHE_TTL_MS) {
@@ -169,19 +202,24 @@ export async function getRemoteSnapshot(params: {
   }
 
   const task = (async (): Promise<StoredSnapshot | null> => {
-  // 优先从 blocksuite_doc 表读取
-    const res = await tuanchat.blocksuiteDocController.getDoc(
-      params.entityType,
-      params.entityId,
-      params.docType,
-    );
-    // Most endpoints wrap data inside ApiResult: { code, msg, data }
-    // Some deployments may return the snapshot object directly.
-    const fromTable = tryParseSnapshot((res as any)?.data ?? res ?? null);
-    if (fromTable)
-      return fromTable;
-
-    return null;
+    // 优先从 blocksuite_doc 表读取
+    try {
+      const res = await tuanchat.blocksuiteDocController.getDoc(
+        params.entityType,
+        params.entityId,
+        params.docType,
+      );
+      // Most endpoints wrap data inside ApiResult: { code, msg, data }
+      // Some deployments may return the snapshot object directly.
+      const fromTable = tryParseSnapshot((res as any)?.data ?? res ?? null);
+      if (fromTable) return fromTable;
+      return null;
+    } catch {
+      // Backend may not have blocksuite enabled in some environments.
+      // Treat as "no snapshot" instead of throwing to keep the app usable.
+      markRemoteFailure();
+      return null;
+    }
   })();
 
   snapshotInflight.set(cacheKey, task);
@@ -189,8 +227,7 @@ export async function getRemoteSnapshot(params: {
     const value = await task;
     snapshotCache.set(cacheKey, { at: Date.now(), value });
     return value;
-  }
-  finally {
+  } finally {
     snapshotInflight.delete(cacheKey);
   }
 }
@@ -207,38 +244,46 @@ export async function setRemoteSnapshot(params: {
   // If we just sent the exact same snapshot, skip.
   // This avoids duplicate PUTs caused by sync init + online flush races.
   const last = snapshotLastSet.get(cacheKey);
-  if (last
-    && last.updateB64 === params.snapshot.updateB64
-    && now - last.at <= SNAPSHOT_SET_DEDUPE_MS) {
+  if (
+    last &&
+    last.updateB64 === params.snapshot.updateB64 &&
+    now - last.at <= SNAPSHOT_SET_DEDUPE_MS
+  ) {
     snapshotCache.set(cacheKey, { at: now, value: params.snapshot });
     return;
   }
 
   // If an identical PUT is already in-flight, reuse it.
   const inflight = snapshotSetInflight.get(cacheKey);
-  if (inflight
-    && last
-    && last.updateB64 === params.snapshot.updateB64
-    && now - last.at <= SNAPSHOT_SET_DEDUPE_MS) {
+  if (
+    inflight &&
+    last &&
+    last.updateB64 === params.snapshot.updateB64 &&
+    now - last.at <= SNAPSHOT_SET_DEDUPE_MS
+  ) {
     return inflight;
   }
 
-  const task = tuanchat.blocksuiteDocController.upsertDoc({
-    entityType: params.entityType,
-    entityId: params.entityId,
-    docType: params.docType,
-    snapshot: JSON.stringify(params.snapshot),
-  }).then(() => {
-    snapshotLastSet.set(cacheKey, { at: Date.now(), updateB64: params.snapshot.updateB64 });
-    snapshotCache.set(cacheKey, { at: Date.now(), value: params.snapshot });
-    invalidateRemoteUpdatesCache(cacheKey);
-  });
+  const task = tuanchat.blocksuiteDocController
+    .upsertDoc({
+      entityType: params.entityType,
+      entityId: params.entityId,
+      docType: params.docType,
+      snapshot: JSON.stringify(params.snapshot),
+    })
+    .then(() => {
+      snapshotLastSet.set(cacheKey, {
+        at: Date.now(),
+        updateB64: params.snapshot.updateB64,
+      });
+      snapshotCache.set(cacheKey, { at: Date.now(), value: params.snapshot });
+      invalidateRemoteUpdatesCache(cacheKey);
+    });
 
   snapshotSetInflight.set(cacheKey, task);
   try {
     await task;
-  }
-  finally {
+  } finally {
     // Only clear if it is still the same task.
     if (snapshotSetInflight.get(cacheKey) === task) {
       snapshotSetInflight.delete(cacheKey);
@@ -258,25 +303,23 @@ export async function deleteRemoteSnapshot(params: {
     return inflight;
   }
 
-  const task = tuanchat.blocksuiteDocController.deleteDoc3(
-    params.entityId,
-    {
+  const task = tuanchat.blocksuiteDocController
+    .deleteDoc3(params.entityId, {
       entityType: params.entityType,
       docType: params.docType,
-    },
-  ).then(() => {
-    snapshotCache.set(cacheKey, { at: Date.now(), value: null });
-    snapshotInflight.delete(cacheKey);
-    snapshotSetInflight.delete(cacheKey);
-    snapshotLastSet.delete(cacheKey);
-    invalidateRemoteUpdatesCache(cacheKey);
-  });
+    })
+    .then(() => {
+      snapshotCache.set(cacheKey, { at: Date.now(), value: null });
+      snapshotInflight.delete(cacheKey);
+      snapshotSetInflight.delete(cacheKey);
+      snapshotLastSet.delete(cacheKey);
+      invalidateRemoteUpdatesCache(cacheKey);
+    });
 
   snapshotDeleteInflight.set(cacheKey, task);
   try {
     await task;
-  }
-  finally {
+  } finally {
     if (snapshotDeleteInflight.get(cacheKey) === task) {
       snapshotDeleteInflight.delete(cacheKey);
     }
@@ -289,9 +332,9 @@ export type RemoteUpdates = {
 };
 
 function isRemoteUpdates(v: any): v is RemoteUpdates {
-  return !!v
-    && Array.isArray(v.updates)
-    && typeof v.latestServerTime === "number";
+  return (
+    !!v && Array.isArray(v.updates) && typeof v.latestServerTime === "number"
+  );
 }
 
 export async function getRemoteUpdates(params: {
@@ -301,6 +344,9 @@ export async function getRemoteUpdates(params: {
   afterServerTime?: number;
   limit?: number;
 }): Promise<RemoteUpdates | null> {
+  if (isRemoteTemporarilyDisabled()) {
+    return null;
+  }
   const cacheKey = buildRemoteUpdatesCacheKey(params);
   const cached = updatesCache.get(cacheKey);
   if (cached && Date.now() - cached.at <= UPDATES_CACHE_TTL_MS) {
@@ -313,22 +359,28 @@ export async function getRemoteUpdates(params: {
   }
 
   const task = (async (): Promise<RemoteUpdates | null> => {
-    const res = await tuanchat.blocksuiteDocController.listDocUpdates(
-      params.entityType,
-      params.entityId,
-      params.docType,
-      params.afterServerTime,
-      params.limit,
-    );
+    try {
+      const res = await tuanchat.blocksuiteDocController.listDocUpdates(
+        params.entityType,
+        params.entityId,
+        params.docType,
+        params.afterServerTime,
+        params.limit,
+      );
 
-    const raw = (res as any)?.data ?? res ?? null;
-    if (isRemoteUpdates(raw)) {
-      return raw;
+      const raw = (res as any)?.data ?? res ?? null;
+      if (isRemoteUpdates(raw)) {
+        return raw;
+      }
+      if (isRemoteUpdates((raw as any)?.data)) {
+        return (raw as any).data;
+      }
+      return null;
+    } catch {
+      // Same rationale as snapshot: keep app usable when backend doesn't support blocksuite.
+      markRemoteFailure();
+      return null;
     }
-    if (isRemoteUpdates((raw as any)?.data)) {
-      return (raw as any).data;
-    }
-    return null;
   })();
 
   updatesInflight.set(cacheKey, task);
@@ -336,8 +388,7 @@ export async function getRemoteUpdates(params: {
     const value = await task;
     updatesCache.set(cacheKey, { at: Date.now(), value });
     return value;
-  }
-  finally {
+  } finally {
     if (updatesInflight.get(cacheKey) === task) {
       updatesInflight.delete(cacheKey);
     }
@@ -350,9 +401,9 @@ export type RemoteUpdatePushResponse = {
 };
 
 function isRemoteUpdatePushResponse(v: any): v is RemoteUpdatePushResponse {
-  return !!v
-    && typeof v.updateId === "number"
-    && typeof v.serverTime === "number";
+  return (
+    !!v && typeof v.updateId === "number" && typeof v.serverTime === "number"
+  );
 }
 
 export async function pushRemoteUpdate(params: {
