@@ -273,6 +273,36 @@ function isSpaceMaterialMoveDrag(dataTransfer: DataTransfer | null) {
   return Boolean(getSpaceMaterialMoveDragData(dataTransfer));
 }
 
+function getEffectiveSpaceMaterialMovePayload(args: {
+  dataTransfer: DataTransfer | null;
+  spaceId: number;
+}): SpaceMaterialMovePayload | null {
+  const dataTransfer = args.dataTransfer;
+  if (!dataTransfer) return null;
+  const direct = getSpaceMaterialMoveDragData(dataTransfer);
+  if (direct && Number(direct.spaceId) === Number(args.spaceId)) return direct;
+
+  // Fallback: allow using MaterialPreviewPayload as move source
+  // (e.g. dragging from preview float, or when custom MIME is stripped).
+  const preview = getMaterialPreviewDragData(dataTransfer);
+  if (!preview) return null;
+  if (preview.scope !== "space") return null;
+  if (Number(preview.spaceId) !== Number(args.spaceId)) return null;
+  if (preview.kind !== "folder" && preview.kind !== "material") return null;
+  const packageId = Number(preview.packageId);
+  if (!Number.isFinite(packageId) || packageId <= 0) return null;
+  const path = Array.isArray(preview.path)
+    ? preview.path.filter((s) => typeof s === "string")
+    : [];
+  if (!path.length) return null;
+  return {
+    spaceId: Number(preview.spaceId),
+    packageId,
+    kind: preview.kind,
+    path,
+  };
+}
+
 export function shouldCaptureSpaceMaterialDockZonePreviewDnd(
   dataTransfer: DataTransfer | null,
 ) {
@@ -1734,6 +1764,36 @@ export function SpaceMaterialLibraryCategory({
         spacePackageId,
         content: nextContent,
       });
+
+      // Some backends may not echo back the full updated `content` in list/detail.
+      // Ensure UI reflects reorder/move immediately by patching query cache.
+      const now = nowIso();
+      queryClient.setQueryData(
+        buildDetailQueryKey(spacePackageId, useBackend),
+        (prev) => {
+          if (!prev || typeof prev !== "object") {
+            return { spacePackageId, content: nextContent } as any;
+          }
+          return { ...(prev as any), content: nextContent, updateTime: now };
+        },
+      );
+      queryClient.setQueryData(
+        buildListQueryKey(spaceId, useBackend),
+        (prev) => {
+          if (!Array.isArray(prev)) return prev;
+          const list = prev as SpaceMaterialPackageRecord[];
+          return list.map((p) =>
+            Number(p.spacePackageId) === Number(spacePackageId)
+              ? ({
+                  ...p,
+                  content: nextContent,
+                  updateTime: now,
+                } as SpaceMaterialPackageRecord)
+              : p,
+          );
+        },
+      );
+
       await queryClient.invalidateQueries({
         queryKey: buildListQueryKey(spaceId, useBackend),
       });
@@ -2858,7 +2918,10 @@ export function SpaceMaterialLibraryCategory({
                   Number.isFinite(sourceId) &&
                   sourceId > 0 &&
                   sourceId !== spacePackageId &&
-                  !getSpaceMaterialMoveDragData(e.dataTransfer)
+                  !getEffectiveSpaceMaterialMovePayload({
+                    dataTransfer: e.dataTransfer,
+                    spaceId,
+                  })
                 ) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -2876,14 +2939,11 @@ export function SpaceMaterialLibraryCategory({
                   return;
                 }
 
-                const movePayload = getSpaceMaterialMoveDragData(
-                  e.dataTransfer,
-                );
-                if (
-                  !movePayload ||
-                  Number(movePayload.spaceId) !== Number(spaceId)
-                )
-                  return;
+                const movePayload = getEffectiveSpaceMaterialMovePayload({
+                  dataTransfer: e.dataTransfer,
+                  spaceId,
+                });
+                if (!movePayload) return;
                 e.preventDefault();
                 e.stopPropagation();
                 e.dataTransfer.dropEffect = "move";
@@ -2913,7 +2973,10 @@ export function SpaceMaterialLibraryCategory({
                   Number.isFinite(sourceId) &&
                   sourceId > 0 &&
                   sourceId !== spacePackageId &&
-                  !getSpaceMaterialMoveDragData(e.dataTransfer)
+                  !getEffectiveSpaceMaterialMovePayload({
+                    dataTransfer: e.dataTransfer,
+                    spaceId,
+                  })
                 ) {
                   e.preventDefault();
                   e.stopPropagation();
@@ -2933,14 +2996,11 @@ export function SpaceMaterialLibraryCategory({
                   return;
                 }
 
-                const movePayload = getSpaceMaterialMoveDragData(
-                  e.dataTransfer,
-                );
-                if (
-                  !movePayload ||
-                  Number(movePayload.spaceId) !== Number(spaceId)
-                )
-                  return;
+                const movePayload = getEffectiveSpaceMaterialMovePayload({
+                  dataTransfer: e.dataTransfer,
+                  spaceId,
+                });
+                if (!movePayload) return;
                 e.preventDefault();
                 e.stopPropagation();
                 setMoveDropTargetKey(null);
@@ -3127,14 +3187,11 @@ export function SpaceMaterialLibraryCategory({
               }}
               onDragOver={(e) => {
                 if (!canEdit) return;
-                const movePayload = getSpaceMaterialMoveDragData(
-                  e.dataTransfer,
-                );
-                if (
-                  !movePayload ||
-                  Number(movePayload.spaceId) !== Number(spaceId)
-                )
-                  return;
+                const movePayload = getEffectiveSpaceMaterialMovePayload({
+                  dataTransfer: e.dataTransfer,
+                  spaceId,
+                });
+                if (!movePayload) return;
 
                 const rect = (
                   e.currentTarget as HTMLElement
@@ -3189,14 +3246,11 @@ export function SpaceMaterialLibraryCategory({
               }}
               onDrop={(e) => {
                 if (!canEdit) return;
-                const movePayload = getSpaceMaterialMoveDragData(
-                  e.dataTransfer,
-                );
-                if (
-                  !movePayload ||
-                  Number(movePayload.spaceId) !== Number(spaceId)
-                )
-                  return;
+                const movePayload = getEffectiveSpaceMaterialMovePayload({
+                  dataTransfer: e.dataTransfer,
+                  spaceId,
+                });
+                if (!movePayload) return;
 
                 const rect = (
                   e.currentTarget as HTMLElement
@@ -3235,7 +3289,6 @@ export function SpaceMaterialLibraryCategory({
                 });
               }}
               onDragEnd={() => {
-                activeSpaceMaterialMoveDrag = null;
                 setMoveDropTargetKey(null);
                 setReorderDropTargetKey(null);
               }}
@@ -3388,12 +3441,11 @@ export function SpaceMaterialLibraryCategory({
             }}
             onDragOver={(e) => {
               if (!canEdit) return;
-              const movePayload = getSpaceMaterialMoveDragData(e.dataTransfer);
-              if (
-                !movePayload ||
-                Number(movePayload.spaceId) !== Number(spaceId)
-              )
-                return;
+              const movePayload = getEffectiveSpaceMaterialMovePayload({
+                dataTransfer: e.dataTransfer,
+                spaceId,
+              });
+              if (!movePayload) return;
 
               const rect = (
                 e.currentTarget as HTMLElement
@@ -3435,12 +3487,11 @@ export function SpaceMaterialLibraryCategory({
             }}
             onDrop={(e) => {
               if (!canEdit) return;
-              const movePayload = getSpaceMaterialMoveDragData(e.dataTransfer);
-              if (
-                !movePayload ||
-                Number(movePayload.spaceId) !== Number(spaceId)
-              )
-                return;
+              const movePayload = getEffectiveSpaceMaterialMovePayload({
+                dataTransfer: e.dataTransfer,
+                spaceId,
+              });
+              if (!movePayload) return;
 
               const rect = (
                 e.currentTarget as HTMLElement
@@ -3465,7 +3516,6 @@ export function SpaceMaterialLibraryCategory({
               });
             }}
             onDragEnd={() => {
-              activeSpaceMaterialMoveDrag = null;
               setMoveDropTargetKey(null);
               setReorderDropTargetKey(null);
             }}

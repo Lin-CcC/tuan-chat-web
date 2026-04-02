@@ -1149,13 +1149,13 @@ export default function MaterialPreviewFloat({
 
   const listQueryKey = useMemo(() => {
     if (scope === "space" && isValidId(activeSpaceId))
-      return buildSpacePreviewListQueryKey(activeSpaceId, useBackend);
+      return buildSpaceLibraryListQueryKey(activeSpaceId, useBackend);
     return buildMaterialPackageMyQueryKey(useBackend);
   }, [activeSpaceId, scope, useBackend]);
 
   const detailQueryKey = useMemo(() => {
     if (scope === "space")
-      return buildSpacePreviewDetailQueryKey(selectedPackageId, useBackend);
+      return buildSpaceLibraryDetailQueryKey(selectedPackageId, useBackend);
     return buildMaterialPackageDetailQueryKey(selectedPackageId, useBackend);
   }, [scope, selectedPackageId, useBackend]);
 
@@ -1829,7 +1829,7 @@ export default function MaterialPreviewFloat({
           return [created, ...(prev as SpaceMaterialPackageRecord[])];
         });
         queryClient.setQueryData(
-          buildSpacePreviewDetailQueryKey(
+          buildSpaceLibraryDetailQueryKey(
             Number(created.spacePackageId),
             useBackend,
           ),
@@ -1894,7 +1894,7 @@ export default function MaterialPreviewFloat({
       writeSpaceMockPackages(activeSpaceId, nextList);
       queryClient.setQueryData(listQueryKey, nextList);
       queryClient.setQueryData(
-        buildSpacePreviewDetailQueryKey(nextId, false),
+        buildSpaceLibraryDetailQueryKey(nextId, false),
         nextRecord,
       );
       queryClient.invalidateQueries({
