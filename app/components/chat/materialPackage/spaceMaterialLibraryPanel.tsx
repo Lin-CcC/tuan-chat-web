@@ -1761,7 +1761,7 @@ export function SpaceMaterialLibraryCategory({
       if (!isValidId(source.packageId) || !isValidId(dest.packageId)) return;
       if (Number(source.spaceId) !== Number(spaceId)) return;
       if (Number(source.packageId) !== Number(dest.packageId)) {
-        toast.error("当前仅支持同一素材箱内排序。");
+        toast.error("不能在素材箱里嵌套素材箱。");
         return;
       }
 
@@ -1786,8 +1786,6 @@ export function SpaceMaterialLibraryCategory({
         return;
       }
 
-      const toastId = `space-material-reorder:${source.packageId}:${source.kind}:${sourceName}`;
-      toast.loading("正在调整顺序…", { id: toastId });
       try {
         const content = await loadPackageContent(source.packageId);
         const next = draftReorderNode(
@@ -1802,10 +1800,9 @@ export function SpaceMaterialLibraryCategory({
           },
         );
         await savePackageContent(source.packageId, next);
-        toast.success("已调整顺序", { id: toastId });
       } catch (error) {
         const message = error instanceof Error ? error.message : "排序失败";
-        toast.error(message, { id: toastId });
+        toast.error(message);
       }
     },
     [canEdit, loadPackageContent, savePackageContent, spaceId],
@@ -1853,9 +1850,6 @@ export function SpaceMaterialLibraryCategory({
         }
       }
 
-      const toastId = `space-material-move:${source.packageId}:${source.kind}:${sourceName}`;
-      toast.loading("正在移动…", { id: toastId });
-
       try {
         // 读 source 内容并取出节点
         const sourceContent = await loadPackageContent(source.packageId);
@@ -1892,7 +1886,7 @@ export function SpaceMaterialLibraryCategory({
         })();
 
         if (!removedNode) {
-          toast.error("要移动的节点不存在或已被刷新。", { id: toastId });
+          // The node might have been moved/refresh during drag; treat as no-op.
           return;
         }
 
@@ -1992,16 +1986,9 @@ export function SpaceMaterialLibraryCategory({
             .querySelector(`[data-node-key="${nextKey}"]`)
             ?.scrollIntoView({ block: "nearest" });
         }, 0);
-
-        toast.success(
-          finalName !== removedNode.name
-            ? `已移动并重命名为「${finalName}」`
-            : "已移动",
-          { id: toastId },
-        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "移动失败";
-        toast.error(message, { id: toastId });
+        toast.error(message);
       }
     },
     [canEdit, loadPackageContent, savePackageContent, spaceId],

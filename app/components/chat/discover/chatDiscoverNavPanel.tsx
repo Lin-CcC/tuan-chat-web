@@ -490,7 +490,9 @@ export default function ChatDiscoverNavPanel({
               <button
                 type="button"
                 className="flex-1 min-w-0 text-left"
-                onClick={() => handleNavigate("/chat/discover/my/material-packages")}
+                onClick={() =>
+                  handleNavigate("/chat/discover/my/material-packages")
+                }
                 aria-label="进入素材包归档"
               >
                 <div className="flex items-center gap-2 min-w-0">

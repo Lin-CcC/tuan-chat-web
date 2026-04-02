@@ -75,6 +75,10 @@ import {
 } from "@/components/chat/materialPackage/materialPackageExplorerOps";
 import { computeMpfDropIntent } from "@/components/chat/materialPackage/materialPreviewFloatDnd";
 import {
+  mergeMaterialPackageRecordContent,
+  mergeSpaceMaterialPackageRecordContent,
+} from "@/components/chat/materialPackage/materialPackageCacheMerge";
+import {
   getFolderNodesAtPath,
   resolveInitialPreviewState,
 } from "@/components/chat/materialPackage/materialPackageTree";
@@ -244,16 +248,31 @@ function setMpfNodeDragData(
   payload: MpfNodeDragPayload,
 ) {
   activeMpfNodeDrag = payload;
+  const encoded = JSON.stringify(payload);
   try {
-    dataTransfer.setData(MPF_NODE_DRAG_TYPE, JSON.stringify(payload));
+    dataTransfer.setData(MPF_NODE_DRAG_TYPE, encoded);
   } catch {
     // ignore
   }
   try {
-    dataTransfer.setData(
-      "text/plain",
-      `tc-mpf-node:${JSON.stringify(payload)}`,
-    );
+    // Prefer `text/uri-list` so we don't clobber `text/plain` used by other DnD flows.
+    dataTransfer.setData("text/uri-list", `tc-mpf-node:${encoded}`);
+  } catch {
+    // ignore
+  }
+  try {
+    // Some environments swallow non-URL content in `text/uri-list`.
+    dataTransfer.setData("text/html", `tc-mpf-node:${encoded}`);
+  } catch {
+    // ignore
+  }
+  // Last-resort fallback: only write `text/plain` when it's currently empty,
+  // because material-preview / sidebar reorder may rely on `text/plain`.
+  try {
+    const existingPlain = dataTransfer.getData("text/plain") || "";
+    if (!existingPlain.trim()) {
+      dataTransfer.setData("text/plain", `tc-mpf-node:${encoded}`);
+    }
   } catch {
     // ignore
   }
@@ -304,6 +323,36 @@ function getMpfNodeDragData(
   } catch {
     // ignore
   }
+
+  // Fallback: parse from text/uri-list
+  try {
+    const uriList = dataTransfer.getData("text/uri-list") || "";
+    const first =
+      uriList
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find(Boolean) || "";
+    const prefix = "tc-mpf-node:";
+    if (first.startsWith(prefix)) {
+      const parsed = parse(first.slice(prefix.length));
+      if (parsed) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Fallback: parse from text/html
+  try {
+    const raw = dataTransfer.getData("text/html") || "";
+    const prefix = "tc-mpf-node:";
+    if (raw.startsWith(prefix)) {
+      const parsed = parse(raw.slice(prefix.length));
+      if (parsed) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+
   return activeMpfNodeDrag;
 }
 
@@ -1456,13 +1505,19 @@ export default function MaterialPreviewFloat({
             spacePackageId: selectedPackageId,
             content: nextContent,
           });
-          queryClient.setQueryData(detailQueryKey, updated);
+          // Some backends may not echo back the full updated `content`.
+          // Ensure preview UI reflects the reorder immediately.
+          const mergedUpdated = mergeSpaceMaterialPackageRecordContent(
+            updated as SpaceMaterialPackageRecord,
+            nextContent,
+          );
+          queryClient.setQueryData(detailQueryKey, mergedUpdated);
           queryClient.setQueryData(listQueryKey, (prev) => {
             if (!Array.isArray(prev)) return prev;
             const list = prev as SpaceMaterialPackageRecord[];
             return list.map((p) =>
-              Number(p.spacePackageId) === Number(updated.spacePackageId)
-                ? updated
+              Number(p.spacePackageId) === Number(mergedUpdated.spacePackageId)
+                ? mergedUpdated
                 : p,
             );
           });
@@ -1484,12 +1539,20 @@ export default function MaterialPreviewFloat({
           packageId: selectedPackageId,
           content: nextContent,
         });
-        queryClient.setQueryData(detailQueryKey, updated);
+        // Some backends may not echo back the full updated `content`.
+        // Ensure preview UI reflects the reorder immediately.
+        const mergedUpdated = mergeMaterialPackageRecordContent(
+          updated as MaterialPackageRecord,
+          nextContent,
+        );
+        queryClient.setQueryData(detailQueryKey, mergedUpdated);
         queryClient.setQueryData(listQueryKey, (prev) => {
           if (!Array.isArray(prev)) return prev;
           const list = prev as MaterialPackageRecord[];
           return list.map((p) =>
-            Number(p.packageId) === Number(updated.packageId) ? updated : p,
+            Number(p.packageId) === Number(mergedUpdated.packageId)
+              ? mergedUpdated
+              : p,
           );
         });
         return;
@@ -1582,20 +1645,25 @@ export default function MaterialPreviewFloat({
     [ensureContent, folderPath, saveContent, selectedPackageId],
   );
 
-  const applyPreviewNodeDropSafely = useCallback(async (args: {
-    source: MpfNodeDragPayload;
-    target: { kind: "folder" | "material"; name: string };
-    intent: "reorderBefore" | "reorderAfter" | "moveInto";
-  }) => {
-    try {
-      await applyPreviewNodeDrop(args);
-    }
-    catch (error) {
-      console.error("[MaterialPreviewFloat] applyPreviewNodeDrop failed", error);
-      const message = error instanceof Error ? error.message : "拖拽排序失败";
-      toast.error(message);
-    }
-  }, [applyPreviewNodeDrop]);
+  const applyPreviewNodeDropSafely = useCallback(
+    async (args: {
+      source: MpfNodeDragPayload;
+      target: { kind: "folder" | "material"; name: string };
+      intent: "reorderBefore" | "reorderAfter" | "moveInto";
+    }) => {
+      try {
+        await applyPreviewNodeDrop(args);
+      } catch (error) {
+        console.error(
+          "[MaterialPreviewFloat] applyPreviewNodeDrop failed",
+          error,
+        );
+        const message = error instanceof Error ? error.message : "拖拽排序失败";
+        toast.error(message);
+      }
+    },
+    [applyPreviewNodeDrop],
+  );
 
   const getMaterialNoteByName = useCallback(
     (materialName: string) => {
@@ -2955,7 +3023,6 @@ export default function MaterialPreviewFloat({
                     }}
                     onDragEnd={() => {
                       clearMpfDropTargets();
-                      activeMpfNodeDrag = null;
                     }}
                     onClick={(e) => {
                       e.preventDefault();
@@ -3408,7 +3475,6 @@ export default function MaterialPreviewFloat({
                       }}
                       onDragEnd={() => {
                         clearMpfDropTargets();
-                        activeMpfNodeDrag = null;
                       }}
                       onClick={(e) => {
                         e.preventDefault();

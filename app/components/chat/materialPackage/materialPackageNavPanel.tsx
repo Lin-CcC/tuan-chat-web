@@ -65,6 +65,7 @@ import {
   markClickSuppressed,
 } from "@/components/chat/materialPackage/materialPackageClickSuppressor";
 import { getFolderNodesAtPath } from "@/components/chat/materialPackage/materialPackageTree";
+import { mergeMaterialPackageRecordContent } from "@/components/chat/materialPackage/materialPackageCacheMerge";
 import {
   buildEmptyMaterialPackageContent,
   draftCreateFolder,
@@ -707,18 +708,27 @@ export default function MaterialPackageNavPanel({
           packageId,
           content: args.nextContent,
         });
-        queryClient.setQueryData(detailKey, updated);
+        // Some backends may not echo back the full updated `content`.
+        // Ensure UI reflects reorder/move immediately.
+        const mergedUpdated = mergeMaterialPackageRecordContent(
+          updated as MaterialPackageRecord,
+          args.nextContent,
+        );
+        queryClient.setQueryData(detailKey, mergedUpdated);
         queryClient.setQueryData(listQueryKey, (prev) => {
           if (!Array.isArray(prev)) return prev;
           const list = prev as MaterialPackageRecord[];
           return list.map((p) =>
-            Number(p.packageId) === packageId ? updated : p,
+            Number(p.packageId) === packageId ? mergedUpdated : p,
           );
         });
         queryClient.setQueryData(squareQueryKey, (prev) =>
-          applyVisibilityToSquare(Array.isArray(prev) ? prev : [], updated),
+          applyVisibilityToSquare(
+            Array.isArray(prev) ? prev : [],
+            mergedUpdated,
+          ),
         );
-        return updated;
+        return mergedUpdated;
       }
 
       const base = findPackageById(packageId);
@@ -755,7 +765,7 @@ export default function MaterialPackageNavPanel({
       const packageId = Number(source.packageId);
       if (!Number.isFinite(packageId) || packageId <= 0) return;
       if (Number(dest.packageId) !== packageId) {
-        toast.error("当前仅支持同一素材箱内排序。");
+        toast.error("不能在素材箱里嵌套素材箱。");
         return;
       }
 
@@ -786,8 +796,6 @@ export default function MaterialPackageNavPanel({
         return;
       }
 
-      const toastId = `material-package-reorder:${packageId}:${source.kind}:${sourceName}`;
-      toast.loading("正在调整顺序…", { id: toastId });
       try {
         const nextContent = draftReorderNode(
           baseContent,
@@ -801,10 +809,9 @@ export default function MaterialPackageNavPanel({
           },
         );
         await savePackageContent({ packageId, nextContent });
-        toast.success("已调整顺序", { id: toastId });
       } catch (error) {
         const message = error instanceof Error ? error.message : "排序失败";
-        toast.error(message, { id: toastId });
+        toast.error(message);
       }
     },
     [findPackageById, savePackageContent],
@@ -871,8 +878,6 @@ export default function MaterialPackageNavPanel({
         }
       }
 
-      const toastId = `material-package-move:${packageId}:${source.kind}:${sourceName}`;
-      toast.loading("正在移动…", { id: toastId });
       try {
         const destSiblings = getFolderNodesAtPath(
           Number(destPackageId) === packageId
@@ -897,7 +902,7 @@ export default function MaterialPackageNavPanel({
             { folderPath: destFolderPath },
           );
           if (!moved.removed) {
-            toast.error("未找到可移动的节点。", { id: toastId });
+            // The node might have been moved/refresh during drag; treat as no-op.
             return;
           }
 
@@ -983,11 +988,9 @@ export default function MaterialPackageNavPanel({
             el?.scrollIntoView({ block: "nearest" });
           });
         });
-
-        toast.success("已移动", { id: toastId });
       } catch (error) {
         const message = error instanceof Error ? error.message : "移动失败";
-        toast.error(message, { id: toastId });
+        toast.error(message);
       }
     },
     [findPackageById, savePackageContent],
@@ -3244,10 +3247,25 @@ export default function MaterialPackageNavPanel({
                   packageReorderDragRef.current?.sourceId ?? -1,
                 );
                 if (!Number.isFinite(sourceId) || sourceId <= 0) {
-                  const source = getMaterialPackageReorderDragData(
-                    e.dataTransfer,
-                  );
-                  if (!source || source.kind === "package") return;
+                  const dataTransfer = e.dataTransfer;
+                  const source =
+                    getMaterialPackageReorderDragData(dataTransfer);
+                  const previewPayload =
+                    getMaterialPreviewDragData(dataTransfer);
+
+                  if (
+                    source?.kind === "package" ||
+                    previewPayload?.kind === "package"
+                  ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "none";
+                    setReorderDropTargetKey(null);
+                    setMoveDropTargetKey(null);
+                    return;
+                  }
+
+                  if (!source) return;
                   e.preventDefault();
                   e.stopPropagation();
                   e.dataTransfer.dropEffect = "move";
@@ -3283,10 +3301,25 @@ export default function MaterialPackageNavPanel({
                   packageReorderDragRef.current?.sourceId ?? -1,
                 );
                 if (!Number.isFinite(sourceId) || sourceId <= 0) {
-                  const source = getMaterialPackageReorderDragData(
-                    e.dataTransfer,
-                  );
-                  if (!source || source.kind === "package") return;
+                  const dataTransfer = e.dataTransfer;
+                  const source =
+                    getMaterialPackageReorderDragData(dataTransfer);
+                  const previewPayload =
+                    getMaterialPreviewDragData(dataTransfer);
+
+                  if (
+                    source?.kind === "package" ||
+                    previewPayload?.kind === "package"
+                  ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setReorderDropTargetKey(null);
+                    setMoveDropTargetKey(null);
+                    toast.error("不能在素材箱里嵌套素材箱。");
+                    return;
+                  }
+
+                  if (!source) return;
                   e.preventDefault();
                   e.stopPropagation();
                   setReorderDropTargetKey(null);
