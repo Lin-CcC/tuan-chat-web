@@ -35,6 +35,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
+import { toast } from "react-hot-toast";
 
 import {
   createMaterialPackage,
@@ -1581,6 +1582,21 @@ export default function MaterialPreviewFloat({
     [ensureContent, folderPath, saveContent, selectedPackageId],
   );
 
+  const applyPreviewNodeDropSafely = useCallback(async (args: {
+    source: MpfNodeDragPayload;
+    target: { kind: "folder" | "material"; name: string };
+    intent: "reorderBefore" | "reorderAfter" | "moveInto";
+  }) => {
+    try {
+      await applyPreviewNodeDrop(args);
+    }
+    catch (error) {
+      console.error("[MaterialPreviewFloat] applyPreviewNodeDrop failed", error);
+      const message = error instanceof Error ? error.message : "拖拽排序失败";
+      toast.error(message);
+    }
+  }, [applyPreviewNodeDrop]);
+
   const getMaterialNoteByName = useCallback(
     (materialName: string) => {
       const nodes = getFolderNodesAtPath(ensureContent(), folderPath);
@@ -2931,7 +2947,7 @@ export default function MaterialPreviewFloat({
                       e.stopPropagation();
                       clearMpfDropTargets();
                       activeMpfNodeDrag = null;
-                      void applyPreviewNodeDrop({
+                      void applyPreviewNodeDropSafely({
                         source,
                         target: { kind: node.type, name },
                         intent,
@@ -3384,7 +3400,7 @@ export default function MaterialPreviewFloat({
                         e.stopPropagation();
                         clearMpfDropTargets();
                         activeMpfNodeDrag = null;
-                        void applyPreviewNodeDrop({
+                        void applyPreviewNodeDropSafely({
                           source,
                           target: { kind: node.type, name },
                           intent,
