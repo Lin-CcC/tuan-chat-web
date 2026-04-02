@@ -312,17 +312,19 @@ export default function DiscoverArchivedSpacesView({ mode }: DiscoverArchivedSpa
                 )
               : (
                   <>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{pageTitle}</div>
+                    <div className="shrink-0 min-w-0">
+                      <div className="text-sm font-semibold whitespace-nowrap">{pageTitle}</div>
                     </div>
-                    <div className="relative w-full max-w-90">
-                      <input
-                        className="input input-sm input-bordered w-full rounded-full"
-                        value={keyword}
-                        onChange={e => setKeyword(e.target.value)}
-                        placeholder={mode === "my" ? "搜索我的归档仓库" : "搜索仓库"}
-                        aria-label={mode === "my" ? "搜索我的归档仓库" : "搜索仓库"}
-                      />
+                    <div className="flex-1 flex justify-end">
+                      <div className="relative w-full max-w-90">
+                        <input
+                          className="input input-sm input-bordered w-full rounded-full"
+                          value={keyword}
+                          onChange={e => setKeyword(e.target.value)}
+                          placeholder={mode === "my" ? "搜索我的归档仓库" : "搜索仓库"}
+                          aria-label={mode === "my" ? "搜索我的归档仓库" : "搜索仓库"}
+                        />
+                      </div>
                     </div>
                   </>
                 )}

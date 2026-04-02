@@ -22,7 +22,7 @@ import { useGlobalContext } from "@/components/globalContextProvider";
 const EMPTY_ARRAY: never[] = [];
 const isProductionMode = import.meta.env.MODE === "production";
 
-type DiscoverMode = "square" | "my";
+export type DiscoverMode = "square" | "my";
 
 interface DiscoverPageProps {
   mode: DiscoverMode;
@@ -125,7 +125,7 @@ export default function DiscoverPage({ mode }: DiscoverPageProps) {
   const setChatLeftPanelWidth = useDrawerPreferenceStore(state => state.setChatLeftPanelWidth);
 
   const leftDrawerToggleLabel = isOpenLeftDrawer ? "收起侧边栏" : "展开侧边栏";
-  const shouldShowLeftDrawerToggle = screenSize === "sm" && !isOpenLeftDrawer;
+  const shouldShowLeftDrawerToggle = screenSize === "sm";
 
   return (
     <SpaceContext value={spaceContextValue}>
