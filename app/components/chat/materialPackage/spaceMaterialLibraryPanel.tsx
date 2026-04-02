@@ -203,10 +203,13 @@ function setSpaceMaterialMoveDragData(
     // ignore
   }
   try {
-    dataTransfer.setData(
-      "text/plain",
-      `tc-space-material-move:${JSON.stringify(payload)}`,
-    );
+    const existingPlain = dataTransfer.getData("text/plain") || "";
+    if (!existingPlain.trim()) {
+      dataTransfer.setData(
+        "text/plain",
+        `tc-space-material-move:${JSON.stringify(payload)}`,
+      );
+    }
   } catch {
     // ignore
   }
