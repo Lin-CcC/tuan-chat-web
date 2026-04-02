@@ -2,9 +2,11 @@ import type { RouteConfig } from "@react-router/dev/routes";
 
 import { index, layout, prefix, route } from "@react-router/dev/routes";
 
-const ENABLE_AI_IMAGE_ROUTE = import.meta.env.DEV || import.meta.env.MODE === "test";
+const ENABLE_AI_IMAGE_ROUTE =
+  import.meta.env.DEV || import.meta.env.MODE === "test";
 const ENABLE_GEMINI_LAB_ROUTE = import.meta.env.DEV;
-const ENABLE_FEEDBACK_ROUTE = import.meta.env.DEV || import.meta.env.MODE === "test";
+const ENABLE_FEEDBACK_ROUTE =
+  import.meta.env.DEV || import.meta.env.MODE === "test";
 
 export default [
   // Blocksuite iframe: used for strong style isolation.
@@ -44,6 +46,15 @@ export default [
     ...prefix("chat", [
       route("material-package", "routes/chatMaterialPackage.tsx"),
       route("discover/my", "routes/chatDiscoverMy.tsx"),
+      route(
+        "discover/my/material-packages",
+        "routes/chatDiscoverMyMaterialPackages.tsx",
+      ),
+      route("discover/my/roles", "routes/chatDiscoverMyRoles.tsx"),
+      route(
+        "discover/material-packages",
+        "routes/chatDiscoverMaterialPackages.tsx",
+      ),
       route("discover", "routes/chatDiscover.tsx"),
       layout("routes/chatLayout.tsx", [
         index("routes/chat.tsx"),
@@ -51,8 +62,12 @@ export default [
         route(":spaceId/:roomId/setting", "routes/chatRoomSetting.tsx"),
         // Avoid optional params here; explicit routes are more reliable.
         route(":spaceId", "routes/chatSpace.tsx", { id: "chatSpaceBySpace" }),
-        route(":spaceId/:roomId", "routes/chatSpace.tsx", { id: "chatSpaceByRoom" }),
-        route(":spaceId/:roomId/:messageId", "routes/chatSpace.tsx", { id: "chatSpaceByMessage" }),
+        route(":spaceId/:roomId", "routes/chatSpace.tsx", {
+          id: "chatSpaceByRoom",
+        }),
+        route(":spaceId/:roomId/:messageId", "routes/chatSpace.tsx", {
+          id: "chatSpaceByMessage",
+        }),
       ]),
     ]),
     route("settings", "routes/settings.tsx"),
@@ -61,8 +76,12 @@ export default [
     route("resource", "routes/resource.tsx"),
     route("doc/:spaceId/:docId", "routes/doc.tsx"),
     ...(ENABLE_AI_IMAGE_ROUTE ? [route("ai-image", "routes/aiImage.tsx")] : []),
-    ...(ENABLE_GEMINI_LAB_ROUTE ? [route("gemini-lab", "routes/geminiLab.tsx")] : []),
-    ...(ENABLE_FEEDBACK_ROUTE ? [route("feedback/:issueId?", "routes/feedback.tsx")] : []),
+    ...(ENABLE_GEMINI_LAB_ROUTE
+      ? [route("gemini-lab", "routes/geminiLab.tsx")]
+      : []),
+    ...(ENABLE_FEEDBACK_ROUTE
+      ? [route("feedback/:issueId?", "routes/feedback.tsx")]
+      : []),
     route("invite/:code", "routes/invite.tsx"),
   ]),
 ] satisfies RouteConfig;
