@@ -2,7 +2,19 @@ import type { VirtuosoHandle } from "react-virtuoso";
 import type { ChatMessageResponse } from "../../../api";
 import React, { memo, useCallback, useEffect, useRef } from "react";
 import { Virtuoso } from "react-virtuoso";
+import toast from "react-hot-toast";
 import { addDroppedFilesToComposer, isFileDrag } from "@/components/chat/utils/dndUpload";
+
+import { getMaterialPreviewDragData, isMaterialPreviewDrag } from "@/components/chat/materialPackage/materialPackageDnd";
+import { getMaterialBatchDragData, isMaterialBatchDrag } from "@/components/chat/materialPackage/materialPackageDndBatch";
+import { useMaterialSendConfirmStore } from "@/components/chat/stores/materialSendConfirmStore";
+import { buildChatRequestsFromMaterialPayloads } from "@/components/chat/materialPackage/materialPackageSendPlanner";
+import {
+  materialMessagesToChatRequests,
+  resolveMaterialMessagesFromPayload,
+} from "@/components/chat/materialPackage/materialPackageSendUtils";
+import { getMaterialPackage, getSpaceMaterialPackage } from "@/components/materialPackage/materialPackageApi";
+import { tuanchat } from "../../../api/instance";
 
 const STABLE_MESSAGE_KEY_FIELD = "__tcStableKey";
 
@@ -130,6 +142,16 @@ interface DragHandlers {
 
 function useChatFrameListDragHandlers(roomId: number): DragHandlers {
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (isMaterialBatchDrag(event.dataTransfer)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      return;
+    }
+    if (isMaterialPreviewDrag(event.dataTransfer)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      return;
+    }
     if (isFileDrag(event.dataTransfer)) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "copy";
@@ -137,6 +159,114 @@ function useChatFrameListDragHandlers(roomId: number): DragHandlers {
   }, []);
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (isMaterialBatchDrag(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const batch = getMaterialBatchDragData(event.dataTransfer);
+      if (!batch?.items?.length)
+        return;
+
+      const defaultUseBackend = !(import.meta.env.MODE === "test");
+      let useBackend = defaultUseBackend;
+      try {
+        const raw = localStorage.getItem("tc:material-package:use-backend");
+        if (raw != null)
+          useBackend = raw === "true";
+      }
+      catch {
+        // ignore
+      }
+
+      if (!useBackend) {
+        toast.success("mock：已模拟发送素材（不写入后端）。");
+        return;
+      }
+
+      const loadingId = toast.loading("正在发送素材…");
+      void (async () => {
+        try {
+          const requests = await buildChatRequestsFromMaterialPayloads(roomId, batch.items);
+          if (!requests.length) {
+            toast("该素材没有可发送的消息。", { id: loadingId });
+            return;
+          }
+          if (requests.length > 10) {
+            useMaterialSendConfirmStore.getState().open({
+              roomId,
+              roomLabel: null,
+              count: requests.length,
+              requests,
+            });
+            toast(`素材较多（${requests.length}条），请确认发送。`, { id: loadingId });
+            return;
+          }
+          await tuanchat.chatController.batchSendMessages(requests);
+          toast.success(`已发送 ${requests.length} 条消息`, { id: loadingId });
+        }
+        catch (error) {
+          const message = error instanceof Error ? error.message : "发送失败";
+          toast.error(message, { id: loadingId });
+        }
+      })();
+      return;
+    }
+    if (isMaterialPreviewDrag(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const payload = getMaterialPreviewDragData(event.dataTransfer);
+      if (!payload)
+        return;
+
+      const defaultUseBackend = !(import.meta.env.MODE === "test");
+      let useBackend = defaultUseBackend;
+      try {
+        const raw = localStorage.getItem("tc:material-package:use-backend");
+        if (raw != null)
+          useBackend = raw === "true";
+      }
+      catch {
+        // ignore
+      }
+
+      if (!useBackend) {
+        toast.success("mock：已模拟发送素材（不写入后端）。");
+        return;
+      }
+
+      const loadingId = toast.loading("正在发送素材…");
+      void (async () => {
+        try {
+          const pkg = payload.scope === "space"
+            ? await getSpaceMaterialPackage(payload.packageId)
+            : await getMaterialPackage(payload.packageId);
+
+          const messages = resolveMaterialMessagesFromPayload(pkg?.content, payload);
+          if (!messages.length) {
+            toast("该素材没有可发送的消息。", { id: loadingId });
+            return;
+          }
+          const requests = materialMessagesToChatRequests(roomId, messages);
+          if (requests.length > 10) {
+            useMaterialSendConfirmStore.getState().open({
+              roomId,
+              roomLabel: null,
+              count: requests.length,
+              requests,
+            });
+            toast(`素材较多（${requests.length}条），请确认发送。`, { id: loadingId });
+            return;
+          }
+          await tuanchat.chatController.batchSendMessages(requests);
+          toast.success(`已发送 ${requests.length} 条消息`, { id: loadingId });
+        }
+        catch (error) {
+          const message = error instanceof Error ? error.message : "发送失败";
+          toast.error(message, { id: loadingId });
+        }
+      })();
+      return;
+    }
+
     if (!isFileDrag(event.dataTransfer))
       return;
     event.preventDefault();

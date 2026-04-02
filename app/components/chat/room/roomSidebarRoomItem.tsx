@@ -2,9 +2,20 @@ import type { DragEvent, MouseEvent } from "react";
 import type { Room } from "../../../../api";
 import type { DraggingItem, DropTarget } from "./useRoomSidebarDragState";
 
+import toast from "react-hot-toast";
 import RoomButton from "@/components/chat/shared/components/roomButton";
+import { getMaterialPreviewDragData, isMaterialPreviewDrag } from "@/components/chat/materialPackage/materialPackageDnd";
+import { getMaterialBatchDragData, isMaterialBatchDrag } from "@/components/chat/materialPackage/materialPackageDndBatch";
+import { buildChatRequestsFromMaterialPayloads } from "@/components/chat/materialPackage/materialPackageSendPlanner";
+import {
+  materialMessagesToChatRequests,
+  resolveMaterialMessagesFromPayload,
+} from "@/components/chat/materialPackage/materialPackageSendUtils";
+import { useMaterialSendConfirmStore } from "@/components/chat/stores/materialSendConfirmStore";
 import { setRoomRefDragData } from "@/components/chat/utils/roomRef";
 import { setSubWindowDragPayload } from "@/components/chat/utils/subWindowDragPayload";
+import { getMaterialPackage, getSpaceMaterialPackage } from "@/components/materialPackage/materialPackageApi";
+import { tuanchat } from "../../../../api/instance";
 
 const ROOM_DRAG_MIME = "application/x-tuanchat-room-id";
 
@@ -49,6 +60,58 @@ export default function RoomSidebarRoomItem({
   onSelectRoom,
   onCloseLeftDrawer,
 }: RoomSidebarRoomItemProps) {
+  async function sendMaterialPayloadToRoom(payload: ReturnType<typeof getMaterialPreviewDragData>) {
+    if (!payload)
+      return;
+
+    const defaultUseBackend = !(import.meta.env.MODE === "test");
+    let useBackend = defaultUseBackend;
+    try {
+      const raw = localStorage.getItem("tc:material-package:use-backend");
+      if (raw != null)
+        useBackend = raw === "true";
+    }
+    catch {
+      // ignore
+    }
+
+    if (!useBackend) {
+      toast.success("mock：已模拟发送素材（不写入后端）。");
+      return;
+    }
+
+    const loadingId = toast.loading("正在发送素材…");
+    try {
+      const pkg = payload.scope === "space"
+        ? await getSpaceMaterialPackage(payload.packageId)
+        : await getMaterialPackage(payload.packageId);
+
+      const messages = resolveMaterialMessagesFromPayload(pkg?.content, payload);
+      if (!messages.length) {
+        toast("该素材没有可发送的消息。", { id: loadingId });
+        return;
+      }
+
+      const requests = materialMessagesToChatRequests(roomId, messages);
+      if (requests.length > 10) {
+        useMaterialSendConfirmStore.getState().open({
+          roomId,
+          roomLabel: String(room?.name ?? "").trim() ? String(room.name) : null,
+          count: requests.length,
+          requests,
+        });
+        toast(`素材较多（${requests.length}条），请确认发送。`, { id: loadingId });
+        return;
+      }
+      await tuanchat.chatController.batchSendMessages(requests);
+      toast.success(`已发送 ${requests.length} 条消息`, { id: loadingId });
+    }
+    catch (error) {
+      const message = error instanceof Error ? error.message : "发送失败";
+      toast.error(message, { id: loadingId });
+    }
+  }
+
   const handleItemDragStart = (e: DragEvent<HTMLDivElement>) => {
     const el = e.target as HTMLElement | null;
     if (el && (el.closest("input") || el.closest("select") || el.closest("textarea"))) {
@@ -96,6 +159,18 @@ export default function RoomSidebarRoomItem({
         onContextMenu(e);
       }}
       onDragOver={(e) => {
+        if (isMaterialBatchDrag(e.dataTransfer)) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+          return;
+        }
+        if (isMaterialPreviewDrag(e.dataTransfer)) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "copy";
+          return;
+        }
         if (!canEdit)
           return;
         if (!dragging || dragging.kind !== "node")
@@ -107,6 +182,64 @@ export default function RoomSidebarRoomItem({
         setDropTarget({ kind: "node", toCategoryId: categoryId, insertIndex: isBefore ? index : index + 1 });
       }}
       onDrop={(e) => {
+        if (isMaterialBatchDrag(e.dataTransfer)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const batch = getMaterialBatchDragData(e.dataTransfer);
+          if (!batch?.items?.length)
+            return;
+
+          const defaultUseBackend = !(import.meta.env.MODE === "test");
+          let useBackend = defaultUseBackend;
+          try {
+            const raw = localStorage.getItem("tc:material-package:use-backend");
+            if (raw != null)
+              useBackend = raw === "true";
+          }
+          catch {
+            // ignore
+          }
+
+          if (!useBackend) {
+            toast.success("mock：已模拟发送素材（不写入后端）。");
+            return;
+          }
+
+          const loadingId = toast.loading("正在发送素材…");
+          void (async () => {
+            try {
+              const requests = await buildChatRequestsFromMaterialPayloads(roomId, batch.items);
+              if (!requests.length) {
+                toast("该素材没有可发送的消息。", { id: loadingId });
+                return;
+              }
+              if (requests.length > 10) {
+                useMaterialSendConfirmStore.getState().open({
+                  roomId,
+                  roomLabel: String(room?.name ?? "").trim() ? String(room.name) : null,
+                  count: requests.length,
+                  requests,
+                });
+                toast(`素材较多（${requests.length}条），请确认发送。`, { id: loadingId });
+                return;
+              }
+              await tuanchat.chatController.batchSendMessages(requests);
+              toast.success(`已发送 ${requests.length} 条消息`, { id: loadingId });
+            }
+            catch (error) {
+              const message = error instanceof Error ? error.message : "发送失败";
+              toast.error(message, { id: loadingId });
+            }
+          })();
+          return;
+        }
+        if (isMaterialPreviewDrag(e.dataTransfer)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const payload = getMaterialPreviewDragData(e.dataTransfer);
+          void sendMaterialPayloadToRoom(payload);
+          return;
+        }
         if (!canEdit)
           return;
         e.preventDefault();
