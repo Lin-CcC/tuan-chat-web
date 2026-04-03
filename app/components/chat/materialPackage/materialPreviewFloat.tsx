@@ -397,6 +397,48 @@ function getNodeBaseType(
   return "文件";
 }
 
+function getMaterialTextPreview(node: MaterialNode): string {
+  if (node.type !== "material") return "";
+
+  const messages = Array.isArray(node.messages) ? node.messages : [];
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object") continue;
+    const content =
+      typeof (msg as any).content === "string" ? (msg as any).content : "";
+    const normalized = content.replace(/\s+/g, " ").trim();
+    if (!normalized) continue;
+    return normalized.length > 80 ? `${normalized.slice(0, 80)}…` : normalized;
+  }
+
+  return "";
+}
+
+const LIST_NOTE_MAX_CHARS = 140;
+const LIST_NOTE_WRAP_EVERY = 18;
+
+function formatListNotePreview(note: string): string {
+  const trimmed = note.trim();
+  if (!trimmed) return "（无备注）";
+
+  const clipped =
+    trimmed.length > LIST_NOTE_MAX_CHARS
+      ? `${trimmed.slice(0, LIST_NOTE_MAX_CHARS)}…`
+      : trimmed;
+
+  const wrapped: string[] = [];
+  for (const line of clipped.split(/\r?\n/)) {
+    if (!line) {
+      wrapped.push("");
+      continue;
+    }
+    for (let i = 0; i < line.length; i += LIST_NOTE_WRAP_EVERY) {
+      wrapped.push(line.slice(i, i + LIST_NOTE_WRAP_EVERY));
+    }
+  }
+
+  return wrapped.join("\n");
+}
+
 const COMMON_ANNOTATIONS = [
   "背景",
   "BGM",
@@ -2977,11 +3019,16 @@ export default function MaterialPreviewFloat({
                   selectedItem.type === node.type &&
                   selectedItem.name === name,
                 );
+                const textPreview = isFolder
+                  ? ""
+                  : getMaterialTextPreview(node);
+                const noteText =
+                  isFolder || typeof node.note !== "string"
+                    ? ""
+                    : node.note.trim();
                 const hintText = isFolder
                   ? "文件夹"
-                  : node.note?.trim()
-                    ? node.note
-                    : "素材";
+                  : textPreview || noteText || "素材";
                 const subtitle = isFolder
                   ? `文件夹 · ${node.children?.length ?? 0}项`
                   : hintText;
@@ -3474,6 +3521,13 @@ export default function MaterialPreviewFloat({
                         annotations.length - displayChips.length,
                       );
                       const baseType = getNodeBaseType(node);
+                      const textPreview = isFolder
+                        ? ""
+                        : getMaterialTextPreview(node);
+                      const rawNote = isFolder ? "" : (node.note ?? "").trim();
+                      const notePreview = isFolder
+                        ? ""
+                        : formatListNotePreview(rawNote);
                       const folderCountText = isFolder
                         ? `${node.children?.length ?? 0} 项`
                         : "";
@@ -3840,13 +3894,21 @@ export default function MaterialPreviewFloat({
                                   )}
                                 </div>
                               )}
+                              {!isFolder && textPreview && (
+                                <div
+                                  className="mt-0.5 text-[11px] text-[color:var(--tc-mpf-muted)] truncate"
+                                  title={textPreview}
+                                >
+                                  {textPreview}
+                                </div>
+                              )}
                             </div>
                           </div>
                           {!compactList && (
                             <div
-                              className="whitespace-nowrap text-[color:var(--tc-mpf-muted)]"
+                              className="text-[color:var(--tc-mpf-muted)] leading-5"
                               data-mpf-inline={isFolder ? undefined : "1"}
-                              title={isFolder ? "" : (node.note ?? "").trim()}
+                              title={isFolder ? "" : rawNote}
                               onClick={(e) => {
                                 if (isFolder) return;
                                 e.preventDefault();
@@ -3910,10 +3972,17 @@ export default function MaterialPreviewFloat({
                                   onMouseDown={(e) => e.stopPropagation()}
                                   onClick={(e) => e.stopPropagation()}
                                 />
-                              ) : (node.note ?? "").trim() ? (
-                                (node.note ?? "").trim()
                               ) : (
-                                "（无备注）"
+                                <span
+                                  className="block whitespace-pre-wrap break-all overflow-hidden"
+                                  style={{
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 3,
+                                    WebkitBoxOrient: "vertical",
+                                  }}
+                                >
+                                  {notePreview}
+                                </span>
                               )}
                             </div>
                           )}

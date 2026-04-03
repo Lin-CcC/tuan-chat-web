@@ -161,6 +161,17 @@ function clampInt(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function createDefaultTextMaterialMessages(content = "") {
+  return [
+    {
+      messageType: 1,
+      content,
+      annotations: ["文本"],
+      extra: {},
+    },
+  ];
+}
+
 type ToolbarAction = "new-file" | "new-folder" | "new-package" | "import";
 
 function shallowArrayEqual(a: unknown, b: unknown) {
@@ -532,6 +543,13 @@ export default function MaterialPackageNavPanel({
     key: string;
     packageId: number | null;
     folderPath: string[];
+    draft: string;
+    saving: boolean;
+  }>(null);
+  const [textMaterialEditor, setTextMaterialEditor] = useState<null | {
+    packageId: number;
+    folderPath: string[];
+    materialName: string;
     draft: string;
     saving: boolean;
   }>(null);
@@ -1566,6 +1584,54 @@ export default function MaterialPackageNavPanel({
     setInlineCreate(null);
   }, []);
 
+  const closeTextMaterialEditor = useCallback(() => {
+    setTextMaterialEditor(null);
+  }, []);
+
+  const saveTextMaterialEditor = useCallback(async () => {
+    const snapshot = textMaterialEditor;
+    if (!snapshot || snapshot.saving) return;
+
+    setTextMaterialEditor((prev) => (prev ? { ...prev, saving: true } : prev));
+
+    try {
+      const pkg = findPackageById(snapshot.packageId);
+      if (!pkg) {
+        throw new Error("目标素材箱不存在或已被刷新。");
+      }
+      const baseContent = pkg.content ?? buildEmptyMaterialPackageContent();
+      const nextContent = draftReplaceMaterialMessages(
+        baseContent,
+        snapshot.folderPath,
+        snapshot.materialName,
+        createDefaultTextMaterialMessages(snapshot.draft),
+      );
+      const nextContentWithNote = draftRenameMaterial(
+        nextContent,
+        snapshot.folderPath,
+        snapshot.materialName,
+        snapshot.materialName,
+        snapshot.draft,
+      );
+      await savePackageContent({
+        packageId: snapshot.packageId,
+        nextContent: nextContentWithNote,
+      });
+      closeTextMaterialEditor();
+    } catch (error) {
+      setTextMaterialEditor((prev) =>
+        prev ? { ...prev, saving: false } : prev,
+      );
+      const message = error instanceof Error ? error.message : "保存失败";
+      toast.error(message);
+    }
+  }, [
+    closeTextMaterialEditor,
+    findPackageById,
+    savePackageContent,
+    textMaterialEditor,
+  ]);
+
   useEffect(() => {
     if (!inlineRename) return;
     const t = window.setTimeout(() => {
@@ -1954,7 +2020,7 @@ export default function MaterialPackageNavPanel({
         type: "material",
         name: finalName,
         note: "",
-        messages: [],
+        messages: createDefaultTextMaterialMessages(),
       };
       const nextContent = draftCreateMaterial(
         baseContent,
@@ -1975,6 +2041,13 @@ export default function MaterialPackageNavPanel({
       const key = buildNodeKey({ packageId, path });
       setSelectedNode({ kind: "material", key, payload });
       ensureRevealNode(payload);
+      setTextMaterialEditor({
+        packageId,
+        folderPath: [...snapshot.folderPath],
+        materialName: finalName,
+        draft: "",
+        saving: false,
+      });
       closeInlineCreate();
     } catch (error) {
       setInlineCreate((prev) => (prev ? { ...prev, saving: false } : prev));
@@ -2214,7 +2287,7 @@ export default function MaterialPackageNavPanel({
         kind: "material",
         packageId,
         folderPath: resolved.folderPath,
-        suggestedName: "新文件.txt",
+        suggestedName: "新文本素材",
       });
     },
     [
@@ -3135,7 +3208,7 @@ export default function MaterialPackageNavPanel({
           ) : (
             <FileImageIcon className="size-4 opacity-70" />
           );
-        const aria = snapshot.kind === "folder" ? "新建文件夹" : "新建文件";
+        const aria = snapshot.kind === "folder" ? "新建文件夹" : "新建文本素材";
         const paddingLeft =
           snapshot.kind === "folder"
             ? `${item.depth + 2}px`
@@ -4086,13 +4159,13 @@ export default function MaterialPackageNavPanel({
                 <div
                   className={`flex items-center gap-1 transition-opacity ${toolbarPinned ? "opacity-90" : "opacity-0 pointer-events-none group-hover:opacity-70 group-hover:pointer-events-auto focus-within:opacity-90 focus-within:pointer-events-auto"}`}
                 >
-                  <PortalTooltip label="新建文件" placement="bottom">
+                  <PortalTooltip label="新建文本素材" placement="bottom">
                     <button
                       type="button"
                       className="btn btn-ghost btn-xs btn-square"
                       disabled={packages.length === 0}
                       onClick={handleToolbarNewFile}
-                      aria-label="新建文件"
+                      aria-label="新建文本素材"
                     >
                       <FilePlus className="size-4" />
                     </button>
@@ -4327,6 +4400,76 @@ export default function MaterialPackageNavPanel({
                     }}
                   >
                     确定
+                  </button>
+                </div>
+              </div>
+            </dialog>,
+            document.body,
+          )
+        : null}
+
+      {textMaterialEditor && typeof document !== "undefined"
+        ? createPortal(
+            <dialog
+              open
+              className="modal modal-open z-[10050]"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (textMaterialEditor.saving) return;
+                closeTextMaterialEditor();
+              }}
+            >
+              <div className="modal-box max-w-[520px] border border-base-300 bg-base-100 p-0 text-base-content shadow-xl">
+                <div className="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+                  <div className="text-sm font-semibold">编辑文本素材内容</div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs btn-square"
+                    aria-label="关闭"
+                    onClick={() => {
+                      if (textMaterialEditor.saving) return;
+                      closeTextMaterialEditor();
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <div className="text-xs opacity-70">
+                    新建素材「{textMaterialEditor.materialName}
+                    」已创建，请输入要发送的文本。
+                  </div>
+                  <textarea
+                    className="textarea textarea-bordered textarea-sm w-full"
+                    rows={6}
+                    value={textMaterialEditor.draft}
+                    onChange={(e) =>
+                      setTextMaterialEditor((prev) =>
+                        prev ? { ...prev, draft: e.target.value } : prev,
+                      )
+                    }
+                    disabled={textMaterialEditor.saving}
+                    placeholder="输入文本素材内容（可留空）"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 border-t border-base-300 px-4 py-3">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={closeTextMaterialEditor}
+                    disabled={textMaterialEditor.saving}
+                  >
+                    稍后编辑
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      void saveTextMaterialEditor();
+                    }}
+                    disabled={textMaterialEditor.saving}
+                  >
+                    {textMaterialEditor.saving ? "保存中…" : "保存"}
                   </button>
                 </div>
               </div>

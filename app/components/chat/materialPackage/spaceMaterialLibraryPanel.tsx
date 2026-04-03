@@ -53,6 +53,7 @@ import {
   draftCreateMaterial,
   draftDeleteFolder,
   draftDeleteMaterial,
+  draftReplaceMaterialMessages,
   draftRenameFolder,
   draftRenameMaterial,
   draftReorderNode,
@@ -110,6 +111,17 @@ function shallowArrayEqual(a: unknown, b: unknown) {
 function parseUpdateTimeMs(value: string | null | undefined) {
   const ms = Date.parse(String(value ?? ""));
   return Number.isFinite(ms) ? ms : -Infinity;
+}
+
+function createDefaultTextMaterialMessages(content = "") {
+  return [
+    {
+      messageType: 1,
+      content,
+      annotations: ["文本"],
+      extra: {},
+    },
+  ];
 }
 
 function buildSortedSpacePackageIdOrder(
@@ -1142,6 +1154,13 @@ export function SpaceMaterialLibraryCategory({
     packageId: number;
     parentPath: string[];
     name: string;
+  }>(null);
+  const [textMaterialEditor, setTextMaterialEditor] = useState<null | {
+    packageId: number;
+    folderPath: string[];
+    materialName: string;
+    draft: string;
+    saving: boolean;
   }>(null);
   const [selectedNode, setSelectedNode] = useState<{
     kind: "package" | "folder" | "material";
@@ -2408,13 +2427,13 @@ export function SpaceMaterialLibraryCategory({
         : [];
     const nodes = getFolderNodesAtPath(baseContent, folderPath);
     const usedNames = nodes.map((n) => n.name);
-    const finalName = autoRenameVsCodeLike("新文件.txt", usedNames);
+    const finalName = autoRenameVsCodeLike("新文本素材", usedNames);
 
     const material: MaterialItemNode = {
       type: "material",
       name: finalName,
       note: "",
-      messages: [],
+      messages: createDefaultTextMaterialMessages(),
     };
     const nextContent = draftCreateMaterial(baseContent, folderPath, material);
     await savePackageContent(targetPackageId, nextContent);
@@ -2428,6 +2447,13 @@ export function SpaceMaterialLibraryCategory({
       kind: "material",
       key: nodeKey,
       packageId: targetPackageId,
+    });
+    setTextMaterialEditor({
+      packageId: targetPackageId,
+      folderPath: [...folderPath],
+      materialName: finalName,
+      draft: "",
+      saving: false,
     });
     ensureExpandedPackage(targetPackageId);
     setCollapsedFolderByKey((prev) => {
@@ -2465,6 +2491,47 @@ export function SpaceMaterialLibraryCategory({
     selectedNode,
     setCollapsedFolderByKey,
     startInlineRename,
+  ]);
+
+  const closeTextMaterialEditor = useCallback(() => {
+    setTextMaterialEditor(null);
+  }, []);
+
+  const saveTextMaterialEditor = useCallback(async () => {
+    const snapshot = textMaterialEditor;
+    if (!snapshot || snapshot.saving) return;
+
+    setTextMaterialEditor((prev) => (prev ? { ...prev, saving: true } : prev));
+
+    try {
+      const baseContent = await loadPackageContent(snapshot.packageId);
+      const nextContent = draftReplaceMaterialMessages(
+        baseContent,
+        snapshot.folderPath,
+        snapshot.materialName,
+        createDefaultTextMaterialMessages(snapshot.draft),
+      );
+      const nextContentWithNote = draftRenameMaterial(
+        nextContent,
+        snapshot.folderPath,
+        snapshot.materialName,
+        snapshot.materialName,
+        snapshot.draft,
+      );
+      await savePackageContent(snapshot.packageId, nextContentWithNote);
+      closeTextMaterialEditor();
+    } catch (error) {
+      setTextMaterialEditor((prev) =>
+        prev ? { ...prev, saving: false } : prev,
+      );
+      const message = error instanceof Error ? error.message : "保存失败";
+      toast.error(message);
+    }
+  }, [
+    closeTextMaterialEditor,
+    loadPackageContent,
+    savePackageContent,
+    textMaterialEditor,
   ]);
 
   const handleToolbarNewFolder = useCallback(async () => {
@@ -3763,7 +3830,7 @@ export function SpaceMaterialLibraryCategory({
               <div
                 className={`${toolbarPinned ? "flex" : "hidden group-hover/ops:flex"} items-center gap-1 opacity-90`}
               >
-                <PortalTooltip label="新建文件" placement="bottom">
+                <PortalTooltip label="新建文本素材" placement="bottom">
                   <button
                     type="button"
                     className="btn btn-ghost btn-xs btn-square"
@@ -3771,7 +3838,7 @@ export function SpaceMaterialLibraryCategory({
                     onClick={() => {
                       void handleToolbarNewFile();
                     }}
-                    aria-label="新建文件"
+                    aria-label="新建文本素材"
                   >
                     <FilePlus className="size-4" />
                   </button>
@@ -4150,6 +4217,76 @@ export function SpaceMaterialLibraryCategory({
           </div>,
           document.body,
         )}
+
+      {textMaterialEditor && typeof document !== "undefined"
+        ? createPortal(
+            <dialog
+              open
+              className="modal modal-open z-[10050]"
+              onCancel={(event) => {
+                event.preventDefault();
+                if (textMaterialEditor.saving) return;
+                closeTextMaterialEditor();
+              }}
+            >
+              <div className="modal-box max-w-[520px] border border-base-300 bg-base-100 p-0 text-base-content shadow-xl">
+                <div className="flex items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
+                  <div className="text-sm font-semibold">编辑文本素材内容</div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs btn-square"
+                    aria-label="关闭"
+                    onClick={() => {
+                      if (textMaterialEditor.saving) return;
+                      closeTextMaterialEditor();
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <div className="text-xs opacity-70">
+                    新建素材「{textMaterialEditor.materialName}
+                    」已创建，请输入要发送的文本。
+                  </div>
+                  <textarea
+                    className="textarea textarea-bordered textarea-sm w-full"
+                    rows={6}
+                    value={textMaterialEditor.draft}
+                    onChange={(e) =>
+                      setTextMaterialEditor((prev) =>
+                        prev ? { ...prev, draft: e.target.value } : prev,
+                      )
+                    }
+                    disabled={textMaterialEditor.saving}
+                    placeholder="输入文本素材内容（可留空）"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 border-t border-base-300 px-4 py-3">
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={closeTextMaterialEditor}
+                    disabled={textMaterialEditor.saving}
+                  >
+                    稍后编辑
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => {
+                      void saveTextMaterialEditor();
+                    }}
+                    disabled={textMaterialEditor.saving}
+                  >
+                    {textMaterialEditor.saving ? "保存中…" : "保存"}
+                  </button>
+                </div>
+              </div>
+            </dialog>,
+            document.body,
+          )
+        : null}
 
       {isDeleteConfirmOpen &&
       pendingDeleteTarget &&
