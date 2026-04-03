@@ -1174,6 +1174,7 @@ export function SpaceMaterialLibraryCategory({
   const textMaterialEditorTextareaRef = useRef<HTMLTextAreaElement | null>(
     null,
   );
+  const textMaterialEditorComposingRef = useRef(false);
   const [selectedNode, setSelectedNode] = useState<{
     kind: "package" | "folder" | "material";
     key: string;
@@ -1279,20 +1280,21 @@ export function SpaceMaterialLibraryCategory({
       }
     }, 0);
     return () => window.clearTimeout(t);
-  }, [inlineRename]);
+  }, [inlineRename?.key]);
 
   useEffect(() => {
     if (!textMaterialEditor) return;
     if (!isDesktopTextInputMode()) return;
     const t = window.setTimeout(() => {
       try {
-        textMaterialEditorTextareaRef.current?.focus?.();
+        const el = textMaterialEditorTextareaRef.current;
+        el?.focus?.();
       } catch {
         // ignore focus errors
       }
     }, 0);
     return () => window.clearTimeout(t);
-  }, [textMaterialEditor]);
+  }, [textMaterialEditor?.packageId, textMaterialEditor?.materialName]);
 
   const startInlineRename = useCallback(
     (args: {
@@ -2541,6 +2543,7 @@ export function SpaceMaterialLibraryCategory({
   const saveTextMaterialEditor = useCallback(async () => {
     const snapshot = textMaterialEditor;
     if (!snapshot || snapshot.saving) return;
+    const draft = textMaterialEditorTextareaRef.current?.value ?? "";
 
     setTextMaterialEditor((prev) => (prev ? { ...prev, saving: true } : prev));
 
@@ -2550,14 +2553,14 @@ export function SpaceMaterialLibraryCategory({
         baseContent,
         snapshot.folderPath,
         snapshot.materialName,
-        createDefaultTextMaterialMessages(snapshot.draft),
+        createDefaultTextMaterialMessages(draft),
       );
       const nextContentWithNote = draftRenameMaterial(
         nextContent,
         snapshot.folderPath,
         snapshot.materialName,
         snapshot.materialName,
-        snapshot.draft,
+        draft,
       );
       await savePackageContent(snapshot.packageId, nextContentWithNote);
       closeTextMaterialEditor();
@@ -4291,19 +4294,31 @@ export function SpaceMaterialLibraryCategory({
                     」已创建，请输入要发送的文本。
                   </div>
                   <textarea
+                    key={`text-editor:${textMaterialEditor.packageId}:${textMaterialEditor.materialName}`}
                     ref={textMaterialEditorTextareaRef}
                     className="textarea textarea-bordered textarea-sm w-full"
                     rows={6}
-                    value={textMaterialEditor.draft}
-                    onChange={(e) =>
-                      setTextMaterialEditor((prev) =>
-                        prev ? { ...prev, draft: e.target.value } : prev,
-                      )
-                    }
+                    defaultValue={textMaterialEditor.draft ?? ""}
+                    onCompositionStart={() => {
+                      textMaterialEditorComposingRef.current = true;
+                    }}
+                    onCompositionEnd={() => {
+                      textMaterialEditorComposingRef.current = false;
+                    }}
                     onKeyDown={(e) => {
                       if (!isDesktopTextInputMode()) return;
                       if (e.key !== "Enter" || e.shiftKey) return;
-                      if (e.isComposing || e.nativeEvent.isComposing) return;
+                      const native = e.nativeEvent as KeyboardEvent & {
+                        isComposing?: boolean;
+                        keyCode?: number;
+                      };
+                      if (
+                        textMaterialEditorComposingRef.current ||
+                        e.isComposing ||
+                        native.isComposing ||
+                        native.keyCode === 229
+                      )
+                        return;
                       e.preventDefault();
                       if (textMaterialEditor.saving) return;
                       void saveTextMaterialEditor();
