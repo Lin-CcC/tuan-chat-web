@@ -415,6 +415,13 @@ function getMaterialTextPreview(node: MaterialNode): string {
 
 const LIST_NOTE_MAX_CHARS = 140;
 const LIST_NOTE_WRAP_EVERY = 18;
+const LIST_NAME_MAX_CHARS = 48;
+
+function formatListNamePreview(name: string): string {
+  return name.length > LIST_NAME_MAX_CHARS
+    ? `${name.slice(0, LIST_NAME_MAX_CHARS)}…`
+    : name;
+}
 
 function formatListNotePreview(note: string): string {
   const trimmed = note.trim();
@@ -3483,7 +3490,7 @@ export default function MaterialPreviewFloat({
               >
                 <div className={compactList ? "min-w-[320px]" : "min-w-max"}>
                   <div
-                    className={`grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 bg-[color:var(--tc-mpf-surface-2)] border-b border-[color:var(--tc-mpf-border)] text-[11px] font-semibold text-[color:var(--tc-mpf-icon)]`}
+                    className={`grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(180px,0.9fr)_minmax(210px,280px)_minmax(72px,96px)]"} gap-2 px-3 py-2 bg-[color:var(--tc-mpf-surface-2)] border-b border-[color:var(--tc-mpf-border)] text-[11px] font-semibold text-[color:var(--tc-mpf-icon)]`}
                   >
                     <div className="opacity-90">名称</div>
                     {!compactList && <div className="opacity-90">备注</div>}
@@ -3521,9 +3528,7 @@ export default function MaterialPreviewFloat({
                         annotations.length - displayChips.length,
                       );
                       const baseType = getNodeBaseType(node);
-                      const textPreview = isFolder
-                        ? ""
-                        : getMaterialTextPreview(node);
+                      const namePreview = formatListNamePreview(name);
                       const rawNote = isFolder ? "" : (node.note ?? "").trim();
                       const notePreview = isFolder
                         ? ""
@@ -3534,7 +3539,7 @@ export default function MaterialPreviewFloat({
                       return (
                         <div
                           key={reactKey}
-                          className={`relative grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(260px,1fr)_minmax(120px,160px)_minmax(72px,96px)]"} gap-2 px-3 py-2 text-xs border-t border-[color:var(--tc-mpf-border)] cursor-pointer ${
+                          className={`relative grid ${compactList ? "grid-cols-[1fr_72px]" : "grid-cols-[minmax(180px,0.9fr)_minmax(210px,280px)_minmax(72px,96px)]"} gap-2 px-3 py-2 text-xs border-t border-[color:var(--tc-mpf-border)] cursor-pointer ${
                             isSelected
                               ? "bg-[color:var(--tc-mpf-selected)]"
                               : "hover:bg-[color:var(--tc-mpf-surface-3)]"
@@ -3825,7 +3830,7 @@ export default function MaterialPreviewFloat({
                               ) : (
                                 <div
                                   data-mpf-inline="1"
-                                  className="whitespace-nowrap text-[color:var(--tc-mpf-text)] font-medium"
+                                  className="whitespace-nowrap truncate text-[color:var(--tc-mpf-text)] font-medium"
                                   title={name}
                                   onClick={(e) => {
                                     e.preventDefault();
@@ -3846,7 +3851,7 @@ export default function MaterialPreviewFloat({
                                     startInlineRename(node);
                                   }}
                                 >
-                                  {name}
+                                  {namePreview}
                                 </div>
                               )}
                               {!compactList && (
@@ -3892,14 +3897,6 @@ export default function MaterialPreviewFloat({
                                       {baseType}
                                     </span>
                                   )}
-                                </div>
-                              )}
-                              {!isFolder && textPreview && (
-                                <div
-                                  className="mt-0.5 text-[11px] text-[color:var(--tc-mpf-muted)] truncate"
-                                  title={textPreview}
-                                >
-                                  {textPreview}
                                 </div>
                               )}
                             </div>

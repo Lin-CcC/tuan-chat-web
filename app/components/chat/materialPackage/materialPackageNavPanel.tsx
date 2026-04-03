@@ -172,6 +172,15 @@ function createDefaultTextMaterialMessages(content = "") {
   ];
 }
 
+function isDesktopTextInputMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
+
 type ToolbarAction = "new-file" | "new-folder" | "new-package" | "import";
 
 function shallowArrayEqual(a: unknown, b: unknown) {
@@ -553,6 +562,9 @@ export default function MaterialPackageNavPanel({
     draft: string;
     saving: boolean;
   }>(null);
+  const textMaterialEditorTextareaRef = useRef<HTMLTextAreaElement | null>(
+    null,
+  );
   const inlineCreateInputRef = useRef<HTMLInputElement | null>(null);
   const inlineCreateMeasureRef = useRef<HTMLSpanElement | null>(null);
   const [inlineCreateWidthPx, setInlineCreateWidthPx] = useState<number>(0);
@@ -1657,6 +1669,19 @@ export default function MaterialPackageNavPanel({
     }, 0);
     return () => window.clearTimeout(t);
   }, [inlineCreate]);
+
+  useEffect(() => {
+    if (!textMaterialEditor) return;
+    if (!isDesktopTextInputMode()) return;
+    const t = window.setTimeout(() => {
+      try {
+        textMaterialEditorTextareaRef.current?.focus?.();
+      } catch {
+        // ignore focus errors
+      }
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [textMaterialEditor]);
 
   const startInlineRename = useCallback(
     (args: {
@@ -4440,6 +4465,7 @@ export default function MaterialPackageNavPanel({
                     」已创建，请输入要发送的文本。
                   </div>
                   <textarea
+                    ref={textMaterialEditorTextareaRef}
                     className="textarea textarea-bordered textarea-sm w-full"
                     rows={6}
                     value={textMaterialEditor.draft}
@@ -4448,6 +4474,14 @@ export default function MaterialPackageNavPanel({
                         prev ? { ...prev, draft: e.target.value } : prev,
                       )
                     }
+                    onKeyDown={(e) => {
+                      if (!isDesktopTextInputMode()) return;
+                      if (e.key !== "Enter" || e.shiftKey) return;
+                      if (e.isComposing || e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      if (textMaterialEditor.saving) return;
+                      void saveTextMaterialEditor();
+                    }}
                     disabled={textMaterialEditor.saving}
                     placeholder="输入文本素材内容（可留空）"
                   />

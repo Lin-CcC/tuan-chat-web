@@ -124,6 +124,15 @@ function createDefaultTextMaterialMessages(content = "") {
   ];
 }
 
+function isDesktopTextInputMode() {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  } catch {
+    return false;
+  }
+}
+
 function buildSortedSpacePackageIdOrder(
   packages: SpaceMaterialPackageRecord[],
 ) {
@@ -1162,6 +1171,9 @@ export function SpaceMaterialLibraryCategory({
     draft: string;
     saving: boolean;
   }>(null);
+  const textMaterialEditorTextareaRef = useRef<HTMLTextAreaElement | null>(
+    null,
+  );
   const [selectedNode, setSelectedNode] = useState<{
     kind: "package" | "folder" | "material";
     key: string;
@@ -1188,6 +1200,7 @@ export function SpaceMaterialLibraryCategory({
     fromName: string;
     draft: string;
     saving: boolean;
+    openTextEditorOnCommit?: boolean;
   }>(null);
   const inlineRenameInputRef = useRef<HTMLInputElement | null>(null);
   const inlineRenameMeasureRef = useRef<HTMLSpanElement | null>(null);
@@ -1268,6 +1281,19 @@ export function SpaceMaterialLibraryCategory({
     return () => window.clearTimeout(t);
   }, [inlineRename]);
 
+  useEffect(() => {
+    if (!textMaterialEditor) return;
+    if (!isDesktopTextInputMode()) return;
+    const t = window.setTimeout(() => {
+      try {
+        textMaterialEditorTextareaRef.current?.focus?.();
+      } catch {
+        // ignore focus errors
+      }
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [textMaterialEditor]);
+
   const startInlineRename = useCallback(
     (args: {
       kind: "package" | "folder" | "material";
@@ -1275,6 +1301,7 @@ export function SpaceMaterialLibraryCategory({
       spacePackageId: number;
       folderPath: string[];
       name: string;
+      openTextEditorOnCommit?: boolean;
     }) => {
       const trimmed = String(args.name ?? "").trim();
       if (!trimmed) return;
@@ -1286,6 +1313,7 @@ export function SpaceMaterialLibraryCategory({
         fromName: trimmed,
         draft: trimmed,
         saving: false,
+        openTextEditorOnCommit: Boolean(args.openTextEditorOnCommit),
       });
     },
     [],
@@ -2080,6 +2108,15 @@ export function SpaceMaterialLibraryCategory({
 
     const trimmed = snapshot.draft.trim();
     if (!trimmed || trimmed === snapshot.fromName) {
+      if (snapshot.kind === "material" && snapshot.openTextEditorOnCommit) {
+        setTextMaterialEditor({
+          packageId: snapshot.spacePackageId,
+          folderPath: [...snapshot.folderPath],
+          materialName: snapshot.fromName,
+          draft: "",
+          saving: false,
+        });
+      }
       closeInlineRename();
       return;
     }
@@ -2203,6 +2240,16 @@ export function SpaceMaterialLibraryCategory({
           .querySelector(`[data-node-key="${nextKey}"]`)
           ?.scrollIntoView({ block: "nearest" });
       }, 0);
+
+      if (snapshot.openTextEditorOnCommit) {
+        setTextMaterialEditor({
+          packageId: spacePackageId,
+          folderPath: [...snapshot.folderPath],
+          materialName: finalName,
+          draft: "",
+          saving: false,
+        });
+      }
       closeInlineRename();
     } catch (error) {
       setInlineRename((prev) => (prev ? { ...prev, saving: false } : prev));
@@ -2448,13 +2495,6 @@ export function SpaceMaterialLibraryCategory({
       key: nodeKey,
       packageId: targetPackageId,
     });
-    setTextMaterialEditor({
-      packageId: targetPackageId,
-      folderPath: [...folderPath],
-      materialName: finalName,
-      draft: "",
-      saving: false,
-    });
     ensureExpandedPackage(targetPackageId);
     setCollapsedFolderByKey((prev) => {
       if (!folderPath.length) return prev;
@@ -2476,6 +2516,7 @@ export function SpaceMaterialLibraryCategory({
       spacePackageId: targetPackageId,
       folderPath,
       name: finalName,
+      openTextEditorOnCommit: true,
     });
     setTimeout(() => {
       document
@@ -4250,6 +4291,7 @@ export function SpaceMaterialLibraryCategory({
                     」已创建，请输入要发送的文本。
                   </div>
                   <textarea
+                    ref={textMaterialEditorTextareaRef}
                     className="textarea textarea-bordered textarea-sm w-full"
                     rows={6}
                     value={textMaterialEditor.draft}
@@ -4258,6 +4300,14 @@ export function SpaceMaterialLibraryCategory({
                         prev ? { ...prev, draft: e.target.value } : prev,
                       )
                     }
+                    onKeyDown={(e) => {
+                      if (!isDesktopTextInputMode()) return;
+                      if (e.key !== "Enter" || e.shiftKey) return;
+                      if (e.isComposing || e.nativeEvent.isComposing) return;
+                      e.preventDefault();
+                      if (textMaterialEditor.saving) return;
+                      void saveTextMaterialEditor();
+                    }}
                     disabled={textMaterialEditor.saving}
                     placeholder="输入文本素材内容（可留空）"
                   />
